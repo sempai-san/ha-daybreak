@@ -25,13 +25,14 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_utc_time,
     async_track_state_change_event,
 )
+from homeassistant.helpers.script import Script, async_validate_actions_config
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.target import (
     TargetSelection,
@@ -44,7 +45,9 @@ from .const import (
     AFTER_STOP_OFF,
     DOMAIN,
     END_AUTO_STOP,
+    END_AWAY,
     END_DISABLED,
+    END_LAST_CALL_TIMEOUT,
     END_MANUAL_OFF,
     END_STOPPED,
     EVENT_ALARM_FINISHED,
@@ -52,6 +55,7 @@ from .const import (
     EVENT_ALARM_SKIPPED,
     EVENT_ALARM_SNOOZED,
     EVENT_ALARM_STOPPED,
+    EVENT_LAST_CALL,
     EVENT_SUNRISE_STARTED,
     SIGNAL_ALARM_ADDED,
     SIGNAL_ALARMS_CHANGED,
@@ -59,6 +63,7 @@ from .const import (
     SNOOZE_LIGHT_OFF,
     STATE_DISABLED,
     STATE_IDLE,
+    STATE_LAST_CALL,
     STATE_RINGING,
     STATE_SCHEDULED,
     STATE_SNOOZED,
@@ -75,6 +80,11 @@ _LOGGER = logging.getLogger(__name__)
 
 # A test run rings this long at most before it stops by itself.
 TEST_MAX_RING = timedelta(minutes=2)
+# In a test run the last call comes after at most this long and lasts at most this long.
+TEST_LAST_CALL = timedelta(minutes=1)
+
+_HOME_STATES = {"home", STATE_ON}
+_UNKNOWN_STATES = {"unknown", "unavailable"}
 
 
 @dataclass
@@ -92,6 +102,10 @@ class AlarmRun:
     timer: CALLBACK_TYPE | None = None
     # Suppress "manual off" detection while we switch the lights off ourselves.
     lights_off_by_us: bool = False
+    last_call_started: datetime | None = None
+    # Separate from `timer`: survives snoozing.
+    last_call_timer: CALLBACK_TYPE | None = None
+    script: Script | None = None
 
     def cancel_timer(self) -> None:
         if self.timer:
@@ -100,6 +114,9 @@ class AlarmRun:
 
     def cancel_all(self) -> None:
         self.cancel_timer()
+        if self.last_call_timer:
+            self.last_call_timer()
+            self.last_call_timer = None
         while self.unsubs:
             self.unsubs.pop()()
 
@@ -234,6 +251,8 @@ class DaybreakManager:
         alarm = self.alarms[alarm_id]
         runtime = self._runtime[alarm_id]
         if run := runtime.run:
+            if run.last_call_started:
+                return STATE_LAST_CALL
             if run.snooze_until:
                 return STATE_SNOOZED
             if run.ring_started:
@@ -265,6 +284,7 @@ class DaybreakManager:
             "sunrise_start": iso(run.sunrise_start) if run else None,
             "ring_started": iso(run.ring_started) if run else None,
             "snooze_until": iso(run.snooze_until) if run else None,
+            "last_call_started": iso(run.last_call_started) if run else None,
         }
 
     def as_dict(self, alarm_id: str) -> dict[str, Any]:
@@ -346,6 +366,20 @@ class DaybreakManager:
         self._handled[alarm_id] = alarm_time.isoformat()
         self._save()
         alarm = self.alarms[alarm_id]
+        presence = alarm["presence"]
+        if presence["skip_when_away"] and not self._anyone_home(presence["entities"]):
+            _LOGGER.debug("DayBreak: nobody home, skipping %s", alarm["name"])
+            self._fire(
+                EVENT_ALARM_SKIPPED,
+                alarm_id,
+                {"skipped": alarm_time.isoformat(), "reason": "away"},
+            )
+            if is_one_time(alarm):
+                alarm["enabled"] = False
+                alarm["date"] = None
+                self._save()
+            self._schedule(alarm_id)
+            return
         sunrise_start = alarm_time - timedelta(minutes=self._sunrise_minutes(alarm))
         await self._async_start_run(alarm_id, alarm_time, sunrise_start, test=False)
 
@@ -374,6 +408,13 @@ class DaybreakManager:
             run.unsubs.append(
                 async_track_state_change_event(
                     self.hass, lights, partial(self._on_light_change, alarm_id)
+                )
+            )
+        presence = alarm["presence"]
+        if presence["entities"] and presence["stop_when_away"]:
+            run.unsubs.append(
+                async_track_state_change_event(
+                    self.hass, presence["entities"], partial(self._on_presence_change, alarm_id)
                 )
             )
 
@@ -470,8 +511,17 @@ class DaybreakManager:
         run.cancel_timer()
         was_snoozed = run.snooze_until is not None
         run.snooze_until = None
+        first_ring = run.ring_started is None
         run.ring_started = run.ring_started or dt_util.utcnow()
         run.lights_off_by_us = False
+        last_call = alarm["last_call"]
+        if first_ring and last_call["enabled"]:
+            after = timedelta(minutes=last_call["after_minutes"])
+            if run.test:
+                after = min(after, TEST_LAST_CALL)
+            run.last_call_timer = async_call_later(
+                self.hass, after, self._job(self._async_last_call, alarm_id)
+            )
         await self._async_set_level(run, alarm["light"], 1.0, transition=1)
         self._fire(EVENT_ALARM_RINGING, alarm_id, {"after_snooze": was_snoozed})
 
@@ -482,9 +532,87 @@ class DaybreakManager:
             run.timer = async_call_later(
                 self.hass,
                 auto_stop,
-                self._job(self._end_run, alarm_id, END_AUTO_STOP),
+                self._job(self._async_auto_stop, alarm_id),
             )
         self._notify(alarm_id)
+
+    async def _async_auto_stop(self, alarm_id: str) -> None:
+        """Nobody reacted in time: last call if configured, else finish."""
+        runtime = self._runtime.get(alarm_id)
+        if not runtime or not (run := runtime.run):
+            return
+        if self.alarms[alarm_id]["last_call"]["enabled"] and not run.last_call_started:
+            await self._async_last_call(alarm_id)
+        else:
+            self._end_run(alarm_id, END_AUTO_STOP)
+
+    async def _async_last_call(self, alarm_id: str) -> None:
+        """Overslept: all configured lights on, run extra actions, for a limited time."""
+        runtime = self._runtime.get(alarm_id)
+        if not runtime or not (run := runtime.run) or run.last_call_started:
+            return
+        alarm = self.alarms[alarm_id]
+        last_call = alarm["last_call"]
+        run.cancel_timer()
+        if run.last_call_timer:
+            run.last_call_timer()
+            run.last_call_timer = None
+        run.snooze_until = None
+        run.last_call_started = dt_util.utcnow()
+        run.lights_off_by_us = False
+
+        lights = self._resolve_lights({"target": last_call["target"]}) or run.lights
+        if new := [entity_id for entity_id in lights if entity_id not in run.lights]:
+            run.lights = sorted({*run.lights, *new})
+            if alarm["behavior"]["stop_on_light_off"]:
+                run.unsubs.append(
+                    async_track_state_change_event(
+                        self.hass, new, partial(self._on_light_change, alarm_id)
+                    )
+                )
+        if lights:
+            data: dict[str, Any] = {
+                ATTR_ENTITY_ID: lights,
+                "brightness": max(1, to_brightness_255(last_call["brightness"])),
+            }
+            if last_call["kelvin"]:
+                data["color_temp_kelvin"] = last_call["kelvin"]
+            await self._async_call_light("turn_on", run, data)
+
+        self._fire(EVENT_LAST_CALL, alarm_id)
+        if last_call["actions"]:
+            await self._async_run_actions(alarm_id, run, last_call["actions"])
+
+        duration = timedelta(minutes=last_call["duration"])
+        if run.test:
+            duration = min(duration, TEST_LAST_CALL)
+        run.timer = async_call_later(
+            self.hass, duration, self._job(self._end_run, alarm_id, END_LAST_CALL_TIMEOUT)
+        )
+        self._notify(alarm_id)
+
+    async def _async_run_actions(
+        self, alarm_id: str, run: AlarmRun, actions: list[dict[str, Any]]
+    ) -> None:
+        alarm = self.alarms[alarm_id]
+        try:
+            config = await async_validate_actions_config(self.hass, cv.SCRIPT_SCHEMA(actions))
+        except Exception:  # broken actions must not kill the alarm
+            _LOGGER.exception("DayBreak: invalid last call actions for %s", alarm["name"])
+            return
+        run.script = Script(
+            self.hass,
+            config,
+            f"DayBreak {alarm['name']} last call",
+            DOMAIN,
+            logger=_LOGGER,
+        )
+        variables = {"alarm_id": alarm_id, "name": alarm["name"], "test": run.test}
+        # Run in the background: a long script must not block the alarm.
+        self.hass.async_create_background_task(
+            run.script.async_run(variables, context=run.context),
+            f"daybreak_last_call_{alarm_id}",
+        )
 
     @callback
     def _on_light_change(self, alarm_id: str, event: Event[EventStateChangedData]) -> None:
@@ -499,6 +627,37 @@ class DaybreakManager:
         _LOGGER.debug("DayBreak: %s turned off by hand, stopping alarm", new.entity_id)
         self._end_run(alarm_id, END_MANUAL_OFF)
 
+    def _anyone_home(self, entities: list[str]) -> bool:
+        """True if any presence entity reports someone at home.
+
+        No entities configured, or an entity that is unknown/unavailable,
+        counts as "home": a flaky tracker must never silence an alarm.
+        """
+        if not entities:
+            return True
+        for entity_id in entities:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in _UNKNOWN_STATES:
+                return True
+            if state.state in _HOME_STATES:
+                return True
+            if entity_id.startswith("zone."):
+                try:
+                    if int(state.state) > 0:
+                        return True
+                except ValueError:
+                    pass
+        return False
+
+    @callback
+    def _on_presence_change(self, alarm_id: str, event: Event[EventStateChangedData]) -> None:
+        runtime = self._runtime.get(alarm_id)
+        if not runtime or not runtime.run:
+            return
+        if not self._anyone_home(self.alarms[alarm_id]["presence"]["entities"]):
+            _LOGGER.debug("DayBreak: everybody left, stopping alarm %s", alarm_id)
+            self._end_run(alarm_id, END_AWAY)
+
     # ---------------------------------------------------------------- actions
 
     def _resolve_targets(self, alarm_id: str | None) -> list[str]:
@@ -511,7 +670,7 @@ class DaybreakManager:
         """Snooze a ringing alarm (or all ringing alarms)."""
         for target in self._resolve_targets(alarm_id):
             run = self._runtime[target].run
-            if not run or not run.ring_started:
+            if not run or not run.ring_started or run.last_call_started:
                 continue
             alarm = self.alarms[target]
             behavior = alarm["behavior"]
@@ -579,12 +738,14 @@ class DaybreakManager:
         run.cancel_all()
         runtime.run = None
         alarm = self.alarms[alarm_id]
+        if run.script and run.script.is_running:
+            self.hass.async_create_task(run.script.async_stop())
 
         if alarm["behavior"]["after_stop"] == AFTER_STOP_OFF and reason != END_MANUAL_OFF:
             self.hass.async_create_task(self._async_lights_off(run))
 
         data = {"reason": reason, "test": run.test}
-        if reason in (END_STOPPED, END_MANUAL_OFF):
+        if reason in (END_STOPPED, END_MANUAL_OFF, END_AWAY):
             self._fire(EVENT_ALARM_STOPPED, alarm_id, data)
         self._fire(EVENT_ALARM_FINISHED, alarm_id, data)
 

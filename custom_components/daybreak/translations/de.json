@@ -39,7 +39,8 @@
           "scheduled": "Geplant",
           "sunrise": "Sonnenaufgang",
           "ringing": "Klingelt",
-          "snoozed": "Schlummert"
+          "snoozed": "Schlummert",
+          "last_call": "Letzter Versuch"
         }
       }
     },

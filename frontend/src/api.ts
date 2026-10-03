@@ -55,7 +55,30 @@ export interface BehaviorConfig {
   stop_on_light_off: boolean;
 }
 
-export type AlarmState = "disabled" | "idle" | "scheduled" | "sunrise" | "ringing" | "snoozed";
+export interface PresenceConfig {
+  entities: string[];
+  skip_when_away: boolean;
+  stop_when_away: boolean;
+}
+
+export interface LastCallConfig {
+  enabled: boolean;
+  after_minutes: number;
+  duration: number;
+  target: Target;
+  brightness: number;
+  kelvin: number | null;
+  actions: Record<string, unknown>[];
+}
+
+export type AlarmState =
+  | "disabled"
+  | "idle"
+  | "scheduled"
+  | "sunrise"
+  | "ringing"
+  | "snoozed"
+  | "last_call";
 
 export interface AlarmRuntime {
   state: AlarmState;
@@ -66,6 +89,7 @@ export interface AlarmRuntime {
   sunrise_start: string | null;
   ring_started: string | null;
   snooze_until: string | null;
+  last_call_started: string | null;
 }
 
 export interface Alarm {
@@ -78,6 +102,8 @@ export interface Alarm {
   skip_date: string | null;
   light: LightConfig;
   behavior: BehaviorConfig;
+  presence: PresenceConfig;
+  last_call: LastCallConfig;
   runtime: AlarmRuntime;
 }
 
@@ -97,7 +123,7 @@ export type AlarmAction =
   | "enable"
   | "disable";
 
-export const ACTIVE_STATES: AlarmState[] = ["sunrise", "ringing", "snoozed"];
+export const ACTIVE_STATES: AlarmState[] = ["sunrise", "ringing", "snoozed", "last_call"];
 
 export const createAlarm = (hass: HomeAssistant, alarm: Partial<AlarmInput>) =>
   hass.callWS<Alarm>({ type: "daybreak/alarm/create", alarm });

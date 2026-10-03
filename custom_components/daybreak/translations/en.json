@@ -39,7 +39,8 @@
           "scheduled": "Scheduled",
           "sunrise": "Sunrise",
           "ringing": "Ringing",
-          "snoozed": "Snoozed"
+          "snoozed": "Snoozed",
+          "last_call": "Last call"
         }
       }
     },
