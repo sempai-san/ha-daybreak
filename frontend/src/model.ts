@@ -2,25 +2,31 @@
 import type { AlarmConfig, ColorPreset, Kind, LightSettings, Point, SequenceStep } from "./api";
 
 export const PRESET_POINTS: Record<string, [number, number][]> = {
+  // Long dark phase, bright only near the end (like a real sunrise).
   natural: [
     [0, 0],
-    [0.55, 0.17],
-    [0.8, 0.5],
+    [0.4, 0.04],
+    [0.7, 0.2],
+    [0.9, 0.6],
     [1, 1],
   ],
+  // Soft S-curve.
   gentle: [
     [0, 0],
-    [0.5, 0.3],
+    [0.25, 0.07],
+    [0.5, 0.4],
+    [0.75, 0.82],
     [1, 1],
   ],
   linear: [
     [0, 0],
-    [0.5, 0.5],
     [1, 1],
   ],
+  // Bright early, then levels off.
   fast: [
     [0, 0],
-    [0.3, 0.6],
+    [0.2, 0.5],
+    [0.5, 0.85],
     [1, 1],
   ],
 };
@@ -88,7 +94,7 @@ export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
     once: null,
     snooze: { preset: null, count: null },
     stop_on_light_off: true,
-    last_call: { enabled: false, profile: "all_on" },
+    last_call: { enabled: false, profile: "all_on", duration: null },
     presence: { entities: [], skip_when_away: true, stop_when_away: true },
     shift: {
       weather: { enabled: false, conditions: [], minutes: {}, cold_below: null, cold_minutes: null },
@@ -148,15 +154,37 @@ export function curvePoints(s: LightSettings, channel: "bri" | "col"): [number, 
   return pts.map((p) => [p.t, p.v]);
 }
 
+function slopes(points: [number, number][]): number[] {
+  const n = points.length;
+  const d: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    d.push((points[i + 1][1] - points[i][1]) / (points[i + 1][0] - points[i][0] || 1e-9));
+  }
+  if (n === 2) return [d[0], d[0]];
+  const m = [d[0]];
+  for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : 2 / (1 / d[i - 1] + 1 / d[i]));
+  m.push(d[n - 2]);
+  return m;
+}
+
+/** Monotone cubic interpolation (same as curve.py). */
 export function curveValue(points: [number, number][], x: number): number {
   x = Math.min(1, Math.max(0, x));
   if (x <= points[0][0]) return points[0][1];
+  if (x >= points[points.length - 1][0]) return points[points.length - 1][1];
+  const m = slopes(points);
   for (let i = 0; i < points.length - 1; i++) {
     const [t0, v0] = points[i];
     const [t1, v1] = points[i + 1];
     if (x <= t1) {
-      const r = t1 === t0 ? 0 : (x - t0) / (t1 - t0);
-      return v0 + (v1 - v0) * (r * r * (3 - 2 * r));
+      const h = t1 - t0 || 1e-9;
+      const r = (x - t0) / h;
+      const v =
+        (2 * r ** 3 - 3 * r ** 2 + 1) * v0 +
+        (r ** 3 - 2 * r ** 2 + r) * h * m[i] +
+        (-2 * r ** 3 + 3 * r ** 2) * v1 +
+        (r ** 3 - r ** 2) * h * m[i + 1];
+      return Math.min(1, Math.max(0, v));
     }
   }
   return points[points.length - 1][1];

@@ -65,7 +65,7 @@ def test_migrate_store_v1():
     assert alarm["snooze"] == {"preset": preset["id"], "count": 2}
     # The custom last call becomes its own profile.
     profile = data["last_call_profiles"][0]
-    assert alarm["last_call"] == {"enabled": True, "profile": profile["id"]}
+    assert alarm["last_call"] == {"enabled": True, "profile": profile["id"], "duration": None}
     assert profile["targets"]["entity_id"] == ["light.hall"]
     assert (profile["brightness"], profile["kelvin"], profile["duration"]) == (90, 4500, 5)
     assert data["handled"] == {"abc": "x"}

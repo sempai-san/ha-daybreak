@@ -14,7 +14,6 @@ import {
   type Phase,
   type Settings,
   type SunTimes,
-  type Target,
   type WeatherKey,
 } from "./api";
 import { t, weekdayNames, type StringKey } from "./i18n";
@@ -40,6 +39,7 @@ import "./components/time-line";
 import "./components/sun-wake";
 import "./components/shift-line";
 import "./components/light-settings";
+import "./components/entity-picker";
 
 const PHASES: Phase[] = ["light_start", "wake", "snooze", "stop"];
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
@@ -79,7 +79,6 @@ export class DaybreakAlarmEditor extends LitElement {
   };
   @state() private _ownerPick = false;
   @state() private _morePresence = false;
-  @state() private _rule?: "weather" | "travel";
   @state() private _phase: Phase = "wake";
   @state() private _unlocked = false;
   @state() private _newProfileName = "";
@@ -446,6 +445,28 @@ export class DaybreakAlarmEditor extends LitElement {
     return this.mode === "simple";
   }
 
+  private _picker(
+    domains: string[],
+    value: string | string[] | null,
+    change: (v: any) => void,
+    opts: { label?: string; multiple?: boolean; areaPick?: boolean; deviceClass?: string; units?: string[] } = {},
+  ) {
+    return html`<db-entity-picker
+      .hass=${this.hass}
+      .domains=${domains}
+      .value=${value}
+      .multiple=${!!opts.multiple}
+      .areaPick=${!!opts.areaPick}
+      .deviceClass=${opts.deviceClass}
+      .units=${opts.units}
+      .label=${opts.label ?? ""}
+      @value-changed=${(ev: CustomEvent) => {
+        ev.stopPropagation();
+        change(ev.detail.value);
+      }}
+    ></db-entity-picker>`;
+  }
+
   private _selector(selector: Record<string, unknown>, value: unknown, change: (v: any) => void, label?: string) {
     return html`<ha-selector
       .hass=${this.hass}
@@ -638,22 +659,25 @@ export class DaybreakAlarmEditor extends LitElement {
           .snooze=${this._snoozeMinutes}
           .count=${this._snoozeCount}
           .lastCall=${d.last_call.enabled}
+          .lcDuration=${this._lcDuration}
           .fixedWake=${d.wake.type === "sun"}
           .showSnooze=${isWake}
           .startLabel=${startLabel}
           .wakeLabel=${wakeLabel}
           .gradient=${rampGradient(settingsLight)}
           @timeline-change=${(ev: CustomEvent) => {
-            const { time, lead, count } = ev.detail;
+            const { time, lead, count, lcDuration } = ev.detail;
             this._patch({
               light_lead: lead,
               wake: d.wake.type === "fixed" ? { ...d.wake, time } : d.wake,
               snooze: count === this._snoozeCount ? d.snooze : { ...d.snooze, count },
+              last_call: lcDuration === this._lcDuration ? d.last_call : { ...d.last_call, duration: lcDuration },
             });
           }}
         ></db-time-line>
       </div>
       ${isWake ? this._snoozeChoice() : nothing}
+      ${isWake ? this._lastCallRow() : nothing}
       ${this._onceBlock()}
       <div class="divider"></div>
       ${this._repeatBlock()}
@@ -674,6 +698,27 @@ export class DaybreakAlarmEditor extends LitElement {
         </button>`,
       )}
       <span class="muted">${t(hass, "snooze_hint")}</span>
+    </div>`;
+  }
+
+  private get _lcDuration() {
+    const lc = this.d.last_call;
+    return lc.duration ?? this.lastCallProfiles.find((p) => p.id === lc.profile)?.duration ?? 10;
+  }
+
+  private _lastCallRow() {
+    const hass = this.hass;
+    const lc = this.d.last_call;
+    return html`<div class="row">
+      <span class="lbl">${t(hass, "last_call")}</span>
+      ${this._toggle(lc.enabled, (v) => this._sub("last_call", { enabled: v }), t(hass, "last_call"))}
+      ${lc.enabled
+        ? html`<select class="inp" aria-label=${t(hass, "last_call")}
+            @change=${(ev: Event) => this._sub("last_call", { profile: (ev.target as HTMLSelectElement).value, duration: null })}>
+            ${this.lastCallProfiles.map((p) => html`<option value=${p.id} ?selected=${p.id === lc.profile}>${p.name}</option>`)}
+          </select>`
+        : nothing}
+      <span class="muted grow">${t(hass, "lc_row_hint")}</span>
     </div>`;
   }
 
@@ -952,12 +997,11 @@ export class DaybreakAlarmEditor extends LitElement {
         <button class="chip" aria-expanded=${this._morePresence} @click=${() => (this._morePresence = !this._morePresence)}>+</button>
       </div>
       ${this._morePresence
-        ? this._selector(
-            { entity: { multiple: true, filter: [{ domain: ["device_tracker", "binary_sensor", "zone", "person", "input_boolean"] }] } },
-            p.entities,
-            (v) => set(v ?? []),
-            t(hass, "presence_more"),
-          )
+        ? this._picker(["device_tracker", "binary_sensor", "zone", "person", "input_boolean"], p.entities, (v) => set(v ?? []), {
+            multiple: true,
+            areaPick: true,
+            label: t(hass, "presence_more"),
+          })
         : nothing}
       <div class="row">
         <label class="row"><input type="checkbox" .checked=${p.skip_when_away}
@@ -974,63 +1018,79 @@ export class DaybreakAlarmEditor extends LitElement {
     const sh = this.d.shift;
     const w = sh.weather;
     const tr = sh.travel;
-    const weatherMax = Math.max(0, ...w.conditions.map((k) => this._weatherMinutes(k)));
-    const travelState = tr.sensor ? Number(hass?.states[tr.sensor]?.state) : NaN;
-    const travelNow = Number.isFinite(travelState) ? Math.max(0, Math.round(travelState - tr.usual)) : 0;
+    const settings = this.settings;
     const bands: ShiftBand[] = [];
-    if (w.enabled)
-      bands.push({
-        key: "weather",
-        label: t(hass, "rule_weather"),
-        minutes: weatherMax,
-        color: "var(--db-weather)",
-        editable: this._expert,
-      });
-    if (tr.enabled)
+    if (w.enabled) {
+      for (const k of w.conditions) {
+        bands.push({
+          key: k,
+          label: t(hass, `weather_${k}` as StringKey),
+          minutes: this._weatherMinutes(k),
+          color: "var(--db-weather)",
+          editable: this._expert,
+          note: this._expert ? t(hass, "shift_drag_hint") : t(hass, "shift_from_settings"),
+        });
+      }
+      const coldMin = w.cold_minutes ?? settings?.cold_minutes ?? 0;
+      if (coldMin) {
+        bands.push({
+          key: "cold",
+          label: t(hass, "shift_cold", { below: w.cold_below ?? settings?.cold_below ?? 0 }),
+          minutes: coldMin,
+          color: "var(--db-weather)",
+          editable: this._expert,
+          note: this._expert ? t(hass, "shift_drag_hint") : t(hass, "shift_from_settings"),
+        });
+      }
+    }
+    if (tr.enabled) {
+      const live = tr.sensor ? Number(hass?.states[tr.sensor]?.state) : NaN;
+      const known = Number.isFinite(live) && !tr.arrive_by;
       bands.push({
         key: "travel",
         label: t(hass, "rule_travel"),
-        minutes: Math.min(travelNow, 240),
+        minutes: known ? Math.min(240, Math.max(0, Math.round(live - tr.usual))) : null,
         color: "var(--db-travel)",
         editable: false,
-        note: Number.isFinite(travelState) ? t(hass, "travel_now", { min: Math.round(travelState) }) : t(hass, "travel_unknown"),
+        note: Number.isFinite(live) ? t(hass, "travel_now", { min: Math.round(live) }) : t(hass, "travel_depends"),
       });
-    const rule = (key: "weather" | "travel", on: boolean, live: string) => html`<div class="rule ${this._rule === key ? "open" : ""}">
+    }
+    const rule = (key: "weather" | "travel", on: boolean, sub: string) => html`<div class="rule ${on ? "open" : ""}">
       <span class="bar-dot" style="background:var(--db-${key})"></span>
-      <button class="t" aria-expanded=${this._rule === key} @click=${() => (this._rule = this._rule === key ? undefined : key)}>
-        <b>${t(hass, `rule_${key}` as StringKey)}</b><span class="muted">${live}</span>
-      </button>
-      ${this._toggle(on, (v) => {
-        this._sub("shift", { [key]: { ...sh[key], enabled: v } } as Partial<AlarmConfig["shift"]>);
-        if (v) this._rule = key;
-      }, t(hass, `rule_${key}` as StringKey))}
+      <div class="grow"><b>${t(hass, `rule_${key}` as StringKey)}</b><div class="muted">${sub}</div></div>
+      ${this._toggle(on, (v) => this._sub("shift", { [key]: { ...sh[key], enabled: v } } as Partial<AlarmConfig["shift"]>),
+        t(hass, `rule_${key}` as StringKey))}
     </div>`;
     return html`<div class="lbl">${t(hass, "shift_title")}</div>
+      <div class="muted">${t(hass, "shift_intro")}</div>
+      <div class="rules">
+        ${rule("weather", w.enabled, t(hass, "rule_weather_d"))}
+        ${rule("travel", tr.enabled, t(hass, "rule_travel_d"))}
+      </div>
+      ${w.enabled ? this._weatherDetail() : nothing}
+      ${tr.enabled ? this._travelDetail() : nothing}
       ${bands.length
-        ? html`<div class="tile"><db-shift-line .hass=${hass} .bands=${bands} .cap=${sh.max} .combine=${sh.combine} .time=${this._wakeTime}
+        ? html`<div class="tile"><db-shift-line .hass=${hass} .bands=${bands} .cap=${sh.max} .combine=${sh.combine}
+            .time=${this._wakeTime} .lead=${this.d.light_lead} .gradient=${rampGradient(this._effectiveSettings())}
             @cap-change=${(ev: CustomEvent) => this._sub("shift", { max: ev.detail.minutes })}
             @band-change=${(ev: CustomEvent) => {
-              if (ev.detail.key !== "weather") return;
-              const minutes = Object.fromEntries(w.conditions.map((k) => [k, ev.detail.minutes]));
-              this._sub("shift", { weather: { ...w, minutes } });
+              const { key, minutes } = ev.detail;
+              if (key === "cold") this._sub("shift", { weather: { ...w, cold_minutes: minutes } });
+              else this._sub("shift", { weather: { ...w, minutes: { ...w.minutes, [key]: minutes } } });
             }}></db-shift-line></div>`
-        : html`<div class="muted">${t(hass, "shift_hint")}</div>`}
-      <div class="rules">
-        ${rule("weather", w.enabled, w.enabled ? w.conditions.map((k) => t(hass, `weather_${k}` as StringKey)).join(", ") || t(hass, "none") : t(hass, "off"))}
-        ${rule("travel", tr.enabled, tr.enabled ? (tr.sensor ? friendlyName(hass, tr.sensor) : t(hass, "travel_pick")) : t(hass, "off"))}
-      </div>
-      ${this._rule === "weather" ? this._weatherDetail() : nothing}
-      ${this._rule === "travel" ? this._travelDetail() : nothing}
-      ${this._expert
+        : nothing}
+      ${bands.length && this._expert
         ? html`<label class="row"><span>${t(hass, "combine")}</span>
             <select class="inp" @change=${(ev: Event) => this._sub("shift", { combine: (ev.target as HTMLSelectElement).value as "max" | "sum" })}>
               <option value="max" ?selected=${sh.combine === "max"}>${t(hass, "combine_max")}</option>
               <option value="sum" ?selected=${sh.combine === "sum"}>${t(hass, "combine_sum")}</option>
             </select></label>`
         : nothing}
-      <label class="row"><input type="checkbox" .checked=${sh.notify}
-        @change=${(ev: Event) => this._sub("shift", { notify: (ev.target as HTMLInputElement).checked })} />
-        ${t(hass, "shift_notify")}</label>`;
+      ${bands.length
+        ? html`<label class="row"><input type="checkbox" .checked=${sh.notify}
+            @change=${(ev: Event) => this._sub("shift", { notify: (ev.target as HTMLInputElement).checked })} />
+            ${t(hass, "shift_notify")}</label>`
+        : nothing}`;
   }
 
   private _weatherDetail() {
@@ -1083,7 +1143,7 @@ export class DaybreakAlarmEditor extends LitElement {
     const tr = this.d.shift.travel;
     const setT = (change: Partial<AlarmConfig["shift"]["travel"]>) => this._sub("shift", { travel: { ...tr, ...change } });
     return html`<div class="tile" style="display:flex;flex-direction:column;gap:10px">
-      ${this._selector({ entity: { filter: [{ domain: "sensor" }] } }, tr.sensor, (v) => setT({ sensor: v || null }), t(hass, "travel_sensor"))}
+      ${this._picker(["sensor"], tr.sensor, (v) => setT({ sensor: v || null }), { label: t(hass, "travel_sensor"), units: ["min", "minutes"] })}
       <div class="grid2">
         <label class="field">${t(hass, "travel_usual")}
           <input class="inp" type="number" min="0" max="240" .value=${String(tr.usual)}
@@ -1117,20 +1177,6 @@ export class DaybreakAlarmEditor extends LitElement {
     return this._section("light", t(hass, "section_light"), summary, () => this._lightBody());
   }
 
-  private _lampChips(lights: string[]) {
-    const hass = this.hass;
-    return html`<div class="row">
-      ${lights.map((e) => {
-        const caps = capsOf(hass?.states[e]?.attributes.supported_color_modes);
-        return html`<span class="lamp">${friendlyName(hass, e)}
-          ${caps.color ? html`<span class="cap">${t(hass, "cap_color")}</span>` : nothing}
-          ${caps.ct ? html`<span class="cap">${t(hass, "cap_ct")}</span>` : nothing}
-          ${!caps.color && !caps.ct ? html`<span class="cap">${t(hass, "cap_dim")}</span>` : nothing}
-        </span>`;
-      })}
-    </div>`;
-  }
-
   private _lightBody() {
     const hass = this.hass;
     const d = this.d;
@@ -1143,10 +1189,12 @@ export class DaybreakAlarmEditor extends LitElement {
     const start = toHHMM(toMin(this._wakeTime) - d.light_lead);
     return html`
       <div class="lbl">${t(hass, "targets")}</div>
-      ${this._selector({ target: { entity: { domain: "light" } } }, d.light.targets, (v: Target) =>
-        this._sub("light", { targets: v ?? {} }),
-      )}
-      ${lights.length ? this._lampChips(lights) : html`<div class="muted">${t(hass, "no_lights")}</div>`}
+      ${this._picker(["light"], lights, (v: string[]) => this._sub("light", { targets: { entity_id: v ?? [] } }), {
+        multiple: true,
+        areaPick: true,
+        label: t(hass, "targets_hint"),
+      })}
+      ${lights.length ? nothing : html`<div class="muted">${t(hass, "no_lights")}</div>`}
       <div class="divider"></div>
       <div class="lbl">${this._simple ? t(hass, "light_settings") : t(hass, "light_common")}</div>
       ${!this._simple || profile ? this._profileRow(profile) : nothing}
@@ -1316,7 +1364,7 @@ export class DaybreakAlarmEditor extends LitElement {
       lc.enabled
         ? {
             title: t(hass, "ladder_last_call"),
-            time: `${formatClock(hass, end)} – ${formatClock(hass, toHHMM(toMin(end) + (profile?.duration ?? 10)))}`,
+            time: `${formatClock(hass, end)} – ${formatClock(hass, toHHMM(toMin(end) + this._lcDuration))}`,
             desc: t(hass, "ladder_last_call_d", { name: profile?.name ?? "" }),
             on: true,
           }
@@ -1390,14 +1438,14 @@ export class DaybreakAlarmEditor extends LitElement {
     </div>`;
     const spare = (lamp: string | null) => {
       const value = lamp ? fb.lights[lamp] ?? "" : Object.values(fb.lights)[0] ?? "";
-      return this._selector({ entity: { filter: [{ domain: "light" }] } }, value, (v: string) => {
+      return this._picker(["light"], value || null, (v: string | null) => {
         const next = { ...fb.lights };
         for (const l of lamp ? [lamp] : lights) {
           if (v) next[l] = v;
           else delete next[l];
         }
         setFb({ lights: next });
-      }, lamp ? friendlyName(hass, lamp) : t(hass, "fb_spare"));
+      }, { label: lamp ? friendlyName(hass, lamp) : t(hass, "fb_spare") });
     };
     return this._section("fb", t(hass, "section_fb"), summary || t(hass, "none"), () =>
       this._simple

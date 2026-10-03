@@ -162,6 +162,19 @@ async def test_last_call(
     assert manager.state(alarm["id"]) == "scheduled"
 
 
+async def test_last_call_duration_per_alarm(
+    hass: HomeAssistant, manager, lights, freezer: FrozenDateTimeFactory
+) -> None:
+    _morning(freezer, 6, 29)
+    await _snooze_preset(manager, 5, 1)
+    finished = async_capture_events(hass, EVENT_ALARM_FINISHED)
+    alarm = await manager.async_create(_alarm(0, last_call={"enabled": True, "duration": 3}))
+    await advance(hass, freezer, timedelta(minutes=6, seconds=30))
+    assert manager.state(alarm["id"]) == "last_call"
+    await advance(hass, freezer, timedelta(minutes=3, seconds=5))
+    assert finished and finished[0].data["reason"] == "last_call_timeout"
+
+
 async def test_stop_prevents_last_call(
     hass: HomeAssistant, manager, lights, freezer: FrozenDateTimeFactory
 ) -> None:

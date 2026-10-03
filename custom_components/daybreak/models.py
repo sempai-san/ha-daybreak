@@ -140,8 +140,9 @@ SEQUENCE_STEP = vol.Schema(
 
 DEFAULT_POINTS = [
     {"t": 0.0, "v": 0.0},
-    {"t": 0.55, "v": 0.17},
-    {"t": 0.8, "v": 0.5},
+    {"t": 0.4, "v": 0.04},
+    {"t": 0.7, "v": 0.2},
+    {"t": 0.9, "v": 0.6},
     {"t": 1.0, "v": 1.0},
 ]
 
@@ -281,6 +282,10 @@ LAST_CALL_SCHEMA = vol.Schema(
     {
         vol.Optional("enabled", default=False): cv.boolean,
         vol.Optional("profile", default="all_on"): cv.string,
+        # Minutes the last call lasts; None = the profile's duration.
+        vol.Optional("duration", default=None): vol.Any(
+            None, vol.All(vol.Coerce(int), vol.Range(min=1, max=120))
+        ),
     }
 )
 

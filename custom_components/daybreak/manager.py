@@ -1340,7 +1340,7 @@ class DaybreakManager:
         if profile["actions"]:
             self._async_run_script(alarm_id, run, profile["actions"], "last_call")
 
-        duration = timedelta(minutes=profile["duration"])
+        duration = timedelta(minutes=alarm["last_call"]["duration"] or profile["duration"])
         if run.test:
             duration = min(duration, TEST_LAST_CALL)
         run.timer = async_call_later(

@@ -129,7 +129,7 @@ export interface AlarmConfig {
   once: { date: string; time: string; light_lead: number | null } | null;
   snooze: { preset: string | null; count: number | null };
   stop_on_light_off: boolean;
-  last_call: { enabled: boolean; profile: string };
+  last_call: { enabled: boolean; profile: string; duration: number | null };
   presence: { entities: string[]; skip_when_away: boolean; stop_when_away: boolean };
   shift: {
     weather: {
