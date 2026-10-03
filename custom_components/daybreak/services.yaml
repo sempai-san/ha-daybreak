@@ -56,3 +56,35 @@ test:
           min: 10
           max: 1800
           unit_of_measurement: s
+set_once:
+  fields:
+    alarm_id:
+      selector:
+        text:
+    entity_id:
+      selector:
+        entity:
+          integration: daybreak
+    date:
+      required: true
+      selector:
+        date:
+    time:
+      required: true
+      selector:
+        time:
+    light_lead:
+      selector:
+        number:
+          min: 0
+          max: 240
+          unit_of_measurement: min
+clear_once:
+  fields:
+    alarm_id:
+      selector:
+        text:
+    entity_id:
+      selector:
+        entity:
+          integration: daybreak

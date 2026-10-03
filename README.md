@@ -4,29 +4,48 @@
 
 DayBreak wakes you up gently: your lights fade in like a sunrise before the alarm time. You manage alarms in a dedicated sidebar panel and control them from dashboard cards. Every alarm is also available to automations as entities, events and actions.
 
-> **Status:** early development (v0.1). The core alarm, sunrise and panel work. Audio, calendars, conditions and much more are on the [roadmap](#roadmap).
+> **Status:** v0.2. Sunrise, sleep and kids lights, sun-based times, automatic shifts, profiles and the new editor work. Audio and calendars are on the [roadmap](#roadmap).
 
 ![DayBreak panel](docs/images/panel.png)
 
-## Features (v0.1)
+## Features
 
-- **Multiple alarms**, each with a name, time and weekdays, or as a one-time alarm (optionally on a fixed date)
-- **Sunrise light**: fades lights, light groups, areas, devices or labels in over a configurable time before the alarm
-  - start/end brightness and start/end colour temperature
-  - curves: *smooth* (recommended), *linear* or *custom* with any number of points
-  - works with brightness-only, colour-temperature and colour lights
-- **Snooze, stop, skip next, test run**: from the panel, cards, entities or actions
-- **Auto stop** after a configurable time, with the light kept on or turned off
-- **Manual override**: turning the alarm lights off stops the alarm
-- **Presence aware**: skip the alarm when nobody is home and stop it when everybody leaves (persons, device trackers, occupancy sensors; an unavailable tracker never silences an alarm)
-- **Last call**: overslept? If the alarm is still running a set time after the alarm time (even when only snoozed), DayBreak switches the chosen lights on at full brightness and runs any Home Assistant actions (scene, script, music…), for a limited time only
-- **Simple / Normal / Expert** editor modes
-- **Dashboard cards** with visual editors
+**Alarms and times**
+- Three kinds: **wake-up light** (sunrise before the alarm), **sleep light** (fades out while you fall asleep) and **OK-to-wake light** for kids (red = stay in bed, green = get up)
+- Fixed time, or **follow the sun**: sunrise/sunset or civil, nautical or astronomical twilight, with an offset and earliest/latest limits
+- Repeat on weekdays (also every 2nd/3rd/4th week), every X days/weeks, a free **shift pattern**, or once
+- **Only once different** (e.g. tomorrow earlier) without touching the normal schedule
+- **Public holidays** are skipped via the Workday integration (normal free days are not treated as holidays)
+- Owners per alarm; presence check (skip when nobody is home, stop when everybody leaves) only when you pick presence entities
+
+**Wake earlier automatically**
+- Weather (snow/ice, storm incl. official warnings such as DWD, heavy rain, cold) and **travel time** (e.g. Waze, with "arrive by" and your morning routine)
+- Several rules: take the strongest one or add them up, always capped by a maximum
+- Rules are checked again while the sunrise is running: the light start moves along, or a running sunrise gets shorter without jumping
+
+**Light**
+- Lights, groups, areas, devices or labels; settings shared by all lamps or **per lamp** (incl. a later start)
+- Four ready-made curves or your own **draggable curve**, one curve for everything or separate curves for brightness and colour
+- **Colour temperature or colour** (sunrise, dawn, pastel or your own colour sequence); white-only lamps follow a matching colour temperature
+- **Light profiles** (templates and your own). Profiles used by alarms of different people are locked; changes are saved as a new profile
+- Pulse or blink while ringing (accessibility), switch off after stopping or 30 min later, spare lamp if a lamp is unreachable
+
+**Snooze and "if nobody reacts"**
+- Snooze options (e.g. 5/9/15 min) are defined once in the settings and chosen per alarm
+- After N snoozes the **last call** starts: a profile with all lights on and any actions, for a limited time only; otherwise the alarm stops by itself
+- Turning a lamp off by hand stops the alarm (optional)
+
+**More**
+- Actions at light start, alarm, snooze and stop (any Home Assistant action)
+- Push notifications (e.g. alarm moved, lamp not reachable) and Home Assistant notifications for problems
+- **Simple / Advanced / Expert** editor, works on phone, tablet and desktop
+- Import/export of alarms and profiles
+- Dashboard cards in Home Assistant style, optionally Mushroom or Bubble look
 - English and German UI
 
-| Editor | Cards |
+| Editor | Light profiles |
 | --- | --- |
-| ![Editor](docs/images/editor.png) | ![Cards](docs/images/cards.png) |
+| ![Editor](docs/images/editor.png) | ![Light profiles](docs/images/profiles.png) |
 
 ## Installation
 
@@ -45,20 +64,28 @@ Copy `custom_components/daybreak` into your `config/custom_components` folder, r
 
 ## Dashboard cards
 
+![Cards](docs/images/cards.png)
+
 ```yaml
 type: custom:daybreak-alarms-card
 title: Alarms
 show_disabled: true
-show_controls: true     # test / skip buttons
-alarms: []              # optional list of alarm ids, empty = all
+show_controls: true     # snooze / stop while an alarm is running
+style: ha               # ha, mushroom or bubble
+accent: false           # DayBreak colours instead of the theme colour
 ```
 
 ```yaml
 type: custom:daybreak-next-card
-alarm: 1a2b3c4d5e6f     # optional, default = whichever rings next
+size: tile              # tile or large (bedside / wall tablet)
+alarm: Workday          # optional name or id, default = whichever rings next
+show_buttons: true
+show_progress: true
+style: ha
+accent: true
 ```
 
-While an alarm is running, both cards show large **Snooze** and **Stop** buttons.
+Both cards have a visual editor.
 
 ## Entities
 
@@ -83,6 +110,8 @@ Global: `sensor.daybreak_next_alarm` (the next alarm of all alarms) and `binary_
 | `daybreak.skip_next` | `alarm_id` or `entity_id` |
 | `daybreak.cancel_skip` | `alarm_id` or `entity_id` |
 | `daybreak.test` | `alarm_id` or `entity_id`, `duration` (seconds) |
+| `daybreak.set_once` | `alarm_id` or `entity_id`, `date`, `time`, `light_lead` (optional) |
+| `daybreak.clear_once` | `alarm_id` or `entity_id` |
 
 Example: a bedside button snoozes on a short press and stops on a long press.
 
@@ -102,9 +131,9 @@ actions:
 
 ## Events
 
-`daybreak_sunrise_started`, `daybreak_alarm_ringing`, `daybreak_alarm_snoozed`, `daybreak_alarm_stopped`, `daybreak_alarm_skipped`, `daybreak_alarm_finished`, `daybreak_last_call`. Every event carries `alarm_id` and `name`. Some events carry more data, such as `reason` (`stopped`, `auto_stop`, `manual_light_off`, `away`, `last_call_timeout`, …) or `test`.
+`daybreak_sunrise_started`, `daybreak_alarm_ringing`, `daybreak_alarm_snoozed`, `daybreak_alarm_stopped`, `daybreak_alarm_skipped`, `daybreak_alarm_finished`, `daybreak_last_call`, `daybreak_alarm_shifted`. Every event carries `alarm_id`, `name` and `kind`. Some events carry more data, such as `reason` (`stopped`, `auto_stop`, `manual_light_off`, `away`, `last_call_timeout`, …) or `test`.
 
-Last call actions can use the variables `alarm_id`, `name` and `test` in templates.
+Alarm and last call actions can use the variables `alarm_id`, `name`, `phase` and `test` in templates.
 
 ```yaml
 triggers:
@@ -116,11 +145,14 @@ actions:
       entity_id: cover.bedroom
 ```
 
+## Updating from 0.1
+
+Your alarms are converted automatically. The snooze length becomes a snooze option and a custom last call becomes a last call profile.
+
 ## Roadmap
 
-- **0.2**: graphical curve editor, RGB colours, audio (media players, Music Assistant, volume ramp), actions during/after the alarm, presets, stop/snooze through a media player's own controls, mobile notifications with snooze/stop
-- **0.3**: calendars with keyword rules (per calendar), exceptions, holidays and vacation, conditions (presence, entity, template), travel-time adjustments (e.g. Waze)
-- **0.4**: sunrise-based triggers, light sensor and weather adaptations, profiles, fallback chains, notifications
+- **0.3**: audio (media players, Music Assistant, volume ramp), stop/snooze with the speaker's own button (e.g. HomePod), mobile notifications with snooze/stop buttons
+- **0.4**: calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
 - **1.0**: Home Assistant brands entry and submission to the HACS default store
 
 ## Development

@@ -131,6 +131,46 @@
           "description": "Länge des verkürzten Test-Sonnenaufgangs in Sekunden."
         }
       }
+    },
+    "set_once": {
+      "name": "Nur einmal anders",
+      "description": "Weckt an einem einzigen Tag zu einer anderen Zeit, z. B. morgen. An allen anderen Tagen gilt der normale Plan.",
+      "fields": {
+        "alarm_id": {
+          "name": "Wecker-ID",
+          "description": "ID des Weckers. Leer lassen (und keine Entität), um alle laufenden Wecker zu steuern."
+        },
+        "entity_id": {
+          "name": "Wecker-Entität",
+          "description": "Eine beliebige DayBreak-Entität des Weckers, alternativ zur Wecker-ID."
+        },
+        "date": {
+          "name": "Datum",
+          "description": "Tag, an dem die andere Zeit gilt."
+        },
+        "time": {
+          "name": "Uhrzeit",
+          "description": "Weckzeit an diesem Tag."
+        },
+        "light_lead": {
+          "name": "Lichtvorlauf",
+          "description": "Minuten, die das Licht an diesem Tag vor dem Wecken startet. Leer = wie immer."
+        }
+      }
+    },
+    "clear_once": {
+      "name": "Einmalige Änderung aufheben",
+      "description": "Entfernt eine einmalig andere Weckzeit.",
+      "fields": {
+        "alarm_id": {
+          "name": "Wecker-ID",
+          "description": "ID des Weckers. Leer lassen (und keine Entität), um alle laufenden Wecker zu steuern."
+        },
+        "entity_id": {
+          "name": "Wecker-Entität",
+          "description": "Eine beliebige DayBreak-Entität des Weckers, alternativ zur Wecker-ID."
+        }
+      }
     }
   }
 }

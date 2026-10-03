@@ -3,18 +3,31 @@
 from __future__ import annotations
 
 import contextlib
+from datetime import date, timedelta
 from typing import Any
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 from .const import SIGNAL_ALARMS_CHANGED
 from .helpers import get_manager
+from .manager import DaybreakError
 
-ACTIONS = ["snooze", "stop", "skip_next", "cancel_skip", "test", "enable", "disable"]
+ACTIONS = [
+    "snooze",
+    "stop",
+    "skip_next",
+    "cancel_skip",
+    "test",
+    "enable",
+    "disable",
+    "clear_once",
+]
 
 
 @callback
@@ -26,6 +39,12 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update)
     websocket_api.async_register_command(hass, ws_delete)
     websocket_api.async_register_command(hass, ws_action)
+    websocket_api.async_register_command(hass, ws_settings)
+    websocket_api.async_register_command(hass, ws_profile_save)
+    websocket_api.async_register_command(hass, ws_profile_delete)
+    websocket_api.async_register_command(hass, ws_sun)
+    websocket_api.async_register_command(hass, ws_preview)
+    websocket_api.async_register_command(hass, ws_once)
 
 
 def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
@@ -34,10 +53,17 @@ def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
     return {
         "alarms": [manager.as_dict(alarm_id) for alarm_id in manager.alarms],
         "next": {"alarm_id": nxt[0], "time": nxt[1].isoformat()} if nxt else None,
+        "settings": manager.settings,
+        "holiday_entity": manager.holiday_entity(),
+        "light_profiles": manager.all_light_profiles(),
+        "last_call_profiles": manager.all_last_call_profiles(),
     }
 
 
 def _error(connection: websocket_api.ActiveConnection, msg_id: int, err: Exception) -> None:
+    if isinstance(err, DaybreakError):
+        connection.send_error(msg_id, err.code, str(err))
+        return
     connection.send_error(msg_id, "daybreak_error", str(err))
 
 
@@ -163,9 +189,144 @@ async def ws_action(
             await manager.async_cancel_skip(alarm_id)
         elif action == "test":
             await manager.async_test(alarm_id, msg.get("duration", 60))
+        elif action == "clear_once":
+            await manager.async_clear_once(alarm_id)
         else:
             await manager.async_set_enabled(alarm_id, action == "enable")
     except HomeAssistantError as err:
         _error(connection, msg["id"], err)
         return
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "daybreak/settings", vol.Optional("changes"): dict}
+)
+@websocket_api.async_response
+async def ws_settings(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Read or change the global settings."""
+    manager = get_manager(hass)
+    try:
+        if "changes" in msg:
+            await manager.async_update_settings(msg["changes"])
+    except (vol.Invalid, HomeAssistantError) as err:
+        _error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], manager.settings)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "daybreak/profile/save",
+        vol.Required("kind"): vol.In(["light", "last_call"]),
+        vol.Required("profile"): dict,
+        vol.Optional("confirm", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_profile_save(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Create a profile (no id) or change one."""
+    try:
+        profile = await get_manager(hass).async_save_profile(
+            msg["kind"], msg["profile"], confirm=msg["confirm"]
+        )
+    except (vol.Invalid, HomeAssistantError) as err:
+        _error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], profile)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "daybreak/profile/delete",
+        vol.Required("kind"): vol.In(["light", "last_call"]),
+        vol.Required("profile_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_profile_delete(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    try:
+        await get_manager(hass).async_delete_profile(msg["kind"], msg["profile_id"])
+    except HomeAssistantError as err:
+        _error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "daybreak/sun",
+        vol.Optional("date"): str,
+        vol.Optional("days", default=1): vol.All(int, vol.Range(min=1, max=366)),
+    }
+)
+@callback
+def ws_sun(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Sun and twilight times of one or more days (UTC ISO strings)."""
+    try:
+        start = date.fromisoformat(msg["date"]) if "date" in msg else dt_util.now().date()
+    except ValueError as err:
+        _error(connection, msg["id"], err)
+        return
+    manager = get_manager(hass)
+    connection.send_result(
+        msg["id"],
+        {
+            (start + timedelta(days=i)).isoformat(): manager.sun_times(start + timedelta(days=i))
+            for i in range(msg["days"])
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "daybreak/preview",
+        vol.Required("entity_id"): vol.All(cv.ensure_list, [cv.entity_id]),
+        vol.Required("settings"): dict,
+        vol.Required("progress"): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_preview(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Show one point of a light curve on real lights."""
+    try:
+        await get_manager(hass).async_preview(msg["settings"], msg["entity_id"], msg["progress"])
+    except (vol.Invalid, HomeAssistantError) as err:
+        _error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "daybreak/alarm/once",
+        vol.Required("alarm_id"): str,
+        vol.Required("date"): str,
+        vol.Required("time"): str,
+        vol.Optional("light_lead"): vol.Any(None, int),
+    }
+)
+@websocket_api.async_response
+async def ws_once(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Ring at another time on one day only."""
+    try:
+        await get_manager(hass).async_set_once(
+            msg["alarm_id"], msg["date"], msg["time"], msg.get("light_lead")
+        )
+    except (vol.Invalid, HomeAssistantError) as err:
+        _error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], get_manager(hass).as_dict(msg["alarm_id"]))

@@ -131,6 +131,46 @@
           "description": "Length of the compressed test sunrise in seconds."
         }
       }
+    },
+    "set_once": {
+      "name": "Only once different",
+      "description": "Rings at another time on one day only, e.g. tomorrow. The alarm keeps its normal schedule on all other days.",
+      "fields": {
+        "alarm_id": {
+          "name": "Alarm ID",
+          "description": "ID of the alarm. Leave empty (and no entity) to act on all running alarms."
+        },
+        "entity_id": {
+          "name": "Alarm entity",
+          "description": "Any DayBreak entity of the alarm, alternatively to the alarm ID."
+        },
+        "date": {
+          "name": "Date",
+          "description": "Day on which the different time applies."
+        },
+        "time": {
+          "name": "Time",
+          "description": "Alarm time on that day."
+        },
+        "light_lead": {
+          "name": "Light lead",
+          "description": "Minutes the light starts before the alarm on that day. Empty = as usual."
+        }
+      }
+    },
+    "clear_once": {
+      "name": "Undo once different",
+      "description": "Removes a one-time different alarm time.",
+      "fields": {
+        "alarm_id": {
+          "name": "Alarm ID",
+          "description": "ID of the alarm. Leave empty (and no entity) to act on all running alarms."
+        },
+        "entity_id": {
+          "name": "Alarm entity",
+          "description": "Any DayBreak entity of the alarm, alternatively to the alarm ID."
+        }
+      }
     }
   }
 }

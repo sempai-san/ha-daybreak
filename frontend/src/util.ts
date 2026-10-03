@@ -1,8 +1,8 @@
-import type { Alarm, HomeAssistant, LightConfig } from "./api";
+import type { AlarmConfig, HomeAssistant } from "./api";
 import { locale, t, weekdayNames } from "./i18n";
 
 // Alarms are defined in Home Assistant's time zone, so always show times there.
-const timeZone = (hass?: HomeAssistant) => hass?.config?.time_zone || undefined;
+export const timeZone = (hass?: HomeAssistant) => hass?.config?.time_zone || undefined;
 
 function hour12(hass?: HomeAssistant): boolean | undefined {
   const fmt = hass?.locale?.time_format;
@@ -21,7 +21,7 @@ export function formatTime(hass: HomeAssistant | undefined, iso: string | Date):
   }).format(date);
 }
 
-/** Format an "HH:MM" wall-clock alarm time in the user's 12/24 h preference. */
+/** Format an "HH:MM" wall-clock time in the user's 12/24 h preference. */
 export function formatClock(hass: HomeAssistant | undefined, hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number);
   return new Intl.DateTimeFormat(locale(hass), {
@@ -33,85 +33,123 @@ export function formatClock(hass: HomeAssistant | undefined, hhmm: string): stri
 }
 
 export function formatDay(hass: HomeAssistant | undefined, iso: string | Date): string {
-  const date = typeof iso === "string" ? new Date(iso) : iso;
+  const date = typeof iso === "string" ? new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso) : iso;
   return new Intl.DateTimeFormat(locale(hass), {
     weekday: "short",
     day: "numeric",
     month: "short",
-    timeZone: timeZone(hass),
+    timeZone: typeof iso === "string" && iso.length === 10 ? "UTC" : timeZone(hass),
   }).format(date);
 }
 
 /** "2 h 05 min" / "3 d 4 h" style countdown. */
-export function countdown(iso: string, now = Date.now()): string {
+export function countdown(hass: HomeAssistant | undefined, iso: string, now = Date.now()): string {
   let minutes = Math.max(0, Math.round((new Date(iso).getTime() - now) / 60000));
   const days = Math.floor(minutes / 1440);
   minutes -= days * 1440;
   const hours = Math.floor(minutes / 60);
   minutes -= hours * 60;
-  if (days) return `${days} d ${hours} h`;
-  if (hours) return `${hours} h ${String(minutes).padStart(2, "0")} min`;
-  return `${minutes} min`;
+  if (days) return t(hass, "dur_dh", { d: days, h: hours });
+  if (hours) return t(hass, "dur_hm", { h: hours, m: String(minutes).padStart(2, "0") });
+  return t(hass, "dur_m", { m: minutes });
 }
 
-export function repeatSummary(hass: HomeAssistant | undefined, alarm: Pick<Alarm, "days" | "date">): string {
-  const days = [...alarm.days].sort();
-  if (!days.length) {
-    return alarm.date ? t(hass, "on_date", { date: formatDay(hass, `${alarm.date}T12:00:00Z`) }) : t(hass, "once");
-  }
-  if (days.length === 7) return t(hass, "every_day");
-  if (days.join() === "0,1,2,3,4") return t(hass, "weekdays");
-  if (days.join() === "5,6") return t(hass, "weekend");
-  const names = weekdayNames(hass);
-  return days.map((d) => names[d]).join(", ");
+// ---- wall-clock arithmetic on "HH:MM" (minutes since midnight, wraps) ----
+
+export const toMin = (hhmm: string): number => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+};
+
+export const toHHMM = (minutes: number): string => {
+  const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+};
+
+/** Local date (YYYY-MM-DD) in HA's time zone. */
+export function localDate(hass: HomeAssistant | undefined, when: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: timeZone(hass),
+  }).format(when);
+  return parts;
 }
 
-/** Approximate colour of a black-body light source (Tanner Helland). */
-export function kelvinToRgb(kelvin: number): [number, number, number] {
-  const temp = kelvin / 100;
-  let r: number;
-  let g: number;
-  let b: number;
-  if (temp <= 66) {
-    r = 255;
-    g = 99.4708025861 * Math.log(temp) - 161.1195681661;
-    b = temp <= 19 ? 0 : 138.5177312231 * Math.log(temp - 10) - 305.0447927307;
-  } else {
-    r = 329.698727446 * Math.pow(temp - 60, -0.1332047592);
-    g = 288.1221695283 * Math.pow(temp - 60, -0.0755148492);
-    b = 255;
-  }
-  const clamp = (v: number) => Math.round(Math.min(255, Math.max(0, v)));
-  return [clamp(r), clamp(g), clamp(b)];
+/** Local "HH:MM" of an ISO time in HA's time zone. */
+export function localHHMM(hass: HomeAssistant | undefined, iso: string | Date): string {
+  const date = typeof iso === "string" ? new Date(iso) : iso;
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: timeZone(hass),
+  }).format(date);
 }
 
-/** Same curve maths as the backend (curve.py). */
-export function levelAt(light: LightConfig, progress: number): { brightness: number; kelvin: number | null } {
-  const x = Math.min(1, Math.max(0, progress));
-  const useCt = light.use_color_temp;
-  if (light.curve === "custom" && light.points.length >= 2) {
-    const pts = [...light.points].sort((a, b) => a.t - b.t);
-    const fallback = useCt ? light.end_kelvin : null;
-    if (x <= pts[0].t) return { brightness: pts[0].brightness, kelvin: useCt ? pts[0].kelvin || fallback : null };
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      if (x <= b.t) {
-        const span = b.t - a.t;
-        const ratio = span <= 0 ? 0 : (x - a.t) / span;
-        const kelvin =
-          a.kelvin && b.kelvin ? a.kelvin + (b.kelvin - a.kelvin) * ratio : a.kelvin || b.kelvin || fallback;
-        return { brightness: a.brightness + (b.brightness - a.brightness) * ratio, kelvin: useCt ? kelvin : null };
-      }
-    }
-    const last = pts[pts.length - 1];
-    return { brightness: last.brightness, kelvin: useCt ? last.kelvin || fallback : null };
+export function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export const weekdayOf = (isoDate: string): number => (new Date(`${isoDate}T12:00:00Z`).getUTCDay() + 6) % 7;
+
+/** Does the repeat rule select a day? Same logic as scheduler.day_matches. */
+export function dayMatches(alarm: AlarmConfig, isoDate: string): boolean {
+  const rep = alarm.repeat;
+  if (rep.type === "once") return rep.date === null || rep.date === isoDate;
+  const anchor = rep.start_date ?? "2024-01-01";
+  const diff = Math.round(
+    (new Date(`${isoDate}T12:00:00Z`).getTime() - new Date(`${anchor}T12:00:00Z`).getTime()) / 86400000,
+  );
+  if (rep.type === "weekly") {
+    if (!rep.days.includes(weekdayOf(isoDate))) return false;
+    if (rep.week_cycle <= 1) return true;
+    const mondayDiff = diff + weekdayOf(anchor);
+    const week = (((Math.floor(mondayDiff / 7) % rep.week_cycle) + rep.week_cycle) % rep.week_cycle);
+    return rep.weeks[week] ?? false;
   }
-  const eased = light.curve === "linear" ? x : x * x * (3 - 2 * x) * 0.4 + x * x * 0.6;
-  return {
-    brightness: light.start_brightness + (light.end_brightness - light.start_brightness) * eased,
-    kelvin: useCt ? light.start_kelvin + (light.end_kelvin - light.start_kelvin) * x : null,
-  };
+  if (diff < 0) return false;
+  if (rep.type === "interval") return diff % (rep.interval * (rep.unit === "weeks" ? 7 : 1)) === 0;
+  return rep.pattern[diff % rep.pattern.length] ?? false;
+}
+
+export function repeatSummary(hass: HomeAssistant | undefined, alarm: AlarmConfig): string {
+  const rep = alarm.repeat;
+  if (rep.type === "once") return rep.date ? t(hass, "on_date", { date: formatDay(hass, rep.date) }) : t(hass, "once");
+  if (rep.type === "interval")
+    return t(hass, rep.unit === "weeks" ? "every_n_weeks" : "every_n_days", { n: rep.interval });
+  if (rep.type === "pattern")
+    return t(hass, "pattern_summary", { on: rep.pattern.filter(Boolean).length, n: rep.pattern.length });
+  const days = [...rep.days].sort();
+  let text: string;
+  if (days.length === 7) text = t(hass, "every_day");
+  else if (days.join() === "0,1,2,3,4") text = t(hass, "weekdays");
+  else if (days.join() === "5,6") text = t(hass, "weekend");
+  else text = days.map((d) => weekdayNames(hass)[d]).join(", ");
+  if (rep.week_cycle > 1) text += " · " + t(hass, "week_cycle_short", { n: rep.week_cycle });
+  return text;
+}
+
+export function friendlyName(hass: HomeAssistant | undefined, entityId: string): string {
+  return hass?.states[entityId]?.attributes.friendly_name ?? entityId;
+}
+
+/** Light entity ids referenced by a target (entities, devices, areas). */
+export function lightsOf(hass: HomeAssistant | undefined, target: { entity_id?: string[]; device_id?: string[]; area_id?: string[] }): string[] {
+  if (!hass) return target.entity_id ?? [];
+  const out = new Set<string>((target.entity_id ?? []).filter((e) => e.startsWith("light.")));
+  const entities = Object.values(hass.entities ?? {});
+  const devices = hass.devices ?? {};
+  for (const ent of entities) {
+    if (!ent.entity_id.startsWith("light.")) continue;
+    if (ent.device_id && target.device_id?.includes(ent.device_id)) out.add(ent.entity_id);
+    const area = ent.area_id ?? (ent.device_id ? devices[ent.device_id]?.area_id : null);
+    if (area && target.area_id?.includes(area)) out.add(ent.entity_id);
+  }
+  return [...out].sort();
 }
 
 /**
@@ -135,3 +173,5 @@ export function loadHaComponents(): Promise<void> {
 export function fireEvent(node: HTMLElement, type: string, detail: unknown = {}): void {
   node.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
 }
+
+export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
