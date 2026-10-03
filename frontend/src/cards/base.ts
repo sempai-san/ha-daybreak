@@ -102,6 +102,9 @@ export const cardStyles = [
       --db-icon: var(--db-accent-strong);
       --db-active: var(--db-accent);
     }
+    :host(:not([accent])) .switch[aria-checked="true"] {
+      background: var(--switch-checked-track-color, var(--primary-color));
+    }
     ha-card {
       height: 100%;
       overflow: hidden;

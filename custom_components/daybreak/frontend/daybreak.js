@@ -868,7 +868,7 @@ let Bt = class {
     return this.cssText;
   }
 };
-const ds = (o) => new Bt(typeof o == "string" ? o : o + "", void 0, Ge), L = (o, ...e) => {
+const ds = (o) => new Bt(typeof o == "string" ? o : o + "", void 0, Ge), O = (o, ...e) => {
   const t = o.length === 1 ? o[0] : e.reduce((s, i, n) => s + ((r) => {
     if (r._$cssResult$ === !0) return r.cssText;
     if (typeof r == "number") return r;
@@ -1098,9 +1098,9 @@ let ne = class extends HTMLElement {
   }
 };
 ne.elementStyles = [], ne.shadowRootOptions = { mode: "open" }, ne[ue("elementProperties")] = /* @__PURE__ */ new Map(), ne[ue("finalized")] = /* @__PURE__ */ new Map(), vs?.({ ReactiveElement: ne }), (Be.reactiveElementVersions ??= []).push("2.1.2");
-const Ye = globalThis, $t = (o) => o, We = Ye.trustedTypes, wt = We ? We.createPolicy("lit-html", { createHTML: (o) => o }) : void 0, Ft = "$lit$", V = `lit$${Math.random().toFixed(9).slice(2)}$`, jt = "?" + V, $s = `<${jt}>`, ee = document, me = () => ee.createComment(""), ge = (o) => o === null || typeof o != "object" && typeof o != "function", Je = Array.isArray, ws = (o) => Je(o) || typeof o?.[Symbol.iterator] == "function", Re = `[ 	
-\f\r]`, pe = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, yt = /-->/g, xt = />/g, X = RegExp(`>|${Re}(?:([^\\s"'>=/]+)(${Re}*=${Re}*(?:[^ 	
-\f\r"'\`<>=]|("|')|))|$)`, "g"), kt = /'/g, St = /"/g, Rt = /^(?:script|style|textarea|title)$/i, Ut = (o) => (e, ...t) => ({ _$litType$: o, strings: e, values: t }), l = Ut(1), ae = Ut(2), le = /* @__PURE__ */ Symbol.for("lit-noChange"), p = /* @__PURE__ */ Symbol.for("lit-nothing"), zt = /* @__PURE__ */ new WeakMap(), Q = ee.createTreeWalker(ee, 129);
+const Ye = globalThis, $t = (o) => o, We = Ye.trustedTypes, wt = We ? We.createPolicy("lit-html", { createHTML: (o) => o }) : void 0, Ft = "$lit$", V = `lit$${Math.random().toFixed(9).slice(2)}$`, Rt = "?" + V, $s = `<${Rt}>`, ee = document, me = () => ee.createComment(""), ge = (o) => o === null || typeof o != "object" && typeof o != "function", Je = Array.isArray, ws = (o) => Je(o) || typeof o?.[Symbol.iterator] == "function", je = `[ 	
+\f\r]`, pe = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, yt = /-->/g, xt = />/g, X = RegExp(`>|${je}(?:([^\\s"'>=/]+)(${je}*=${je}*(?:[^ 	
+\f\r"'\`<>=]|("|')|))|$)`, "g"), kt = /'/g, St = /"/g, jt = /^(?:script|style|textarea|title)$/i, Ut = (o) => (e, ...t) => ({ _$litType$: o, strings: e, values: t }), l = Ut(1), ae = Ut(2), le = /* @__PURE__ */ Symbol.for("lit-noChange"), p = /* @__PURE__ */ Symbol.for("lit-nothing"), zt = /* @__PURE__ */ new WeakMap(), Q = ee.createTreeWalker(ee, 129);
 function qt(o, e) {
   if (!Je(o) || !o.hasOwnProperty("raw")) throw Error("invalid template strings array");
   return wt !== void 0 ? wt.createHTML(e) : e;
@@ -1111,7 +1111,7 @@ const ys = (o, e) => {
   for (let c = 0; c < t; c++) {
     const d = o[c];
     let h, u, _ = -1, f = 0;
-    for (; f < d.length && (r.lastIndex = f, u = r.exec(d), u !== null); ) f = r.lastIndex, r === pe ? u[1] === "!--" ? r = yt : u[1] !== void 0 ? r = xt : u[2] !== void 0 ? (Rt.test(u[2]) && (i = RegExp("</" + u[2], "g")), r = X) : u[3] !== void 0 && (r = X) : r === X ? u[0] === ">" ? (r = i ?? pe, _ = -1) : u[1] === void 0 ? _ = -2 : (_ = r.lastIndex - u[2].length, h = u[1], r = u[3] === void 0 ? X : u[3] === '"' ? St : kt) : r === St || r === kt ? r = X : r === yt || r === xt ? r = pe : (r = X, i = void 0);
+    for (; f < d.length && (r.lastIndex = f, u = r.exec(d), u !== null); ) f = r.lastIndex, r === pe ? u[1] === "!--" ? r = yt : u[1] !== void 0 ? r = xt : u[2] !== void 0 ? (jt.test(u[2]) && (i = RegExp("</" + u[2], "g")), r = X) : u[3] !== void 0 && (r = X) : r === X ? u[0] === ">" ? (r = i ?? pe, _ = -1) : u[1] === void 0 ? _ = -2 : (_ = r.lastIndex - u[2].length, h = u[1], r = u[3] === void 0 ? X : u[3] === '"' ? St : kt) : r === St || r === kt ? r = X : r === yt || r === xt ? r = pe : (r = X, i = void 0);
     const m = r === X && o[c + 1].startsWith("/>") ? " " : "";
     n += r === pe ? d + $s : _ >= 0 ? (s.push(h), d.slice(0, _) + Ft + d.slice(_) + V + m) : d + V + (_ === -2 ? c : m);
   }
@@ -1133,7 +1133,7 @@ class fe {
           const f = u[r++], m = i.getAttribute(_).split(V), $ = /([.?@])?(.*)/.exec(f);
           d.push({ type: 1, index: n, name: $[2], strings: m, ctor: $[1] === "." ? ks : $[1] === "?" ? Ss : $[1] === "@" ? zs : Fe }), i.removeAttribute(_);
         } else _.startsWith(V) && (d.push({ type: 6, index: n }), i.removeAttribute(_));
-        if (Rt.test(i.tagName)) {
+        if (jt.test(i.tagName)) {
           const _ = i.textContent.split(V), f = _.length - 1;
           if (f > 0) {
             i.textContent = We ? We.emptyScript : "";
@@ -1141,7 +1141,7 @@ class fe {
             i.append(_[f], me());
           }
         }
-      } else if (i.nodeType === 8) if (i.data === jt) d.push({ type: 2, index: n });
+      } else if (i.nodeType === 8) if (i.data === Rt) d.push({ type: 2, index: n });
       else {
         let _ = -1;
         for (; (_ = i.data.indexOf(V, _ + 1)) !== -1; ) d.push({ type: 7, index: n }), _ += V.length - 1;
@@ -1543,7 +1543,7 @@ function He(o) {
 function Fs(o, e, t) {
   return [o[0] + (e[0] - o[0]) * t, o[1] + (e[1] - o[1]) * t, o[2] + (e[2] - o[2]) * t];
 }
-function js(o) {
+function Rs(o) {
   if (o.colors === "custom" && o.sequence.length >= 2) {
     const t = o.sequence.reduce((r, c) => r + c.minutes, 0) || 1, s = [];
     let i = 0;
@@ -1555,8 +1555,8 @@ function js(o) {
   const e = Te[o.colors] ?? Te.sunrise;
   return e.map((t, s) => [s / (e.length - 1), t, null]);
 }
-function Rs(o, e) {
-  const t = js(o);
+function js(o, e) {
+  const t = Rs(o);
   e = Math.min(1, Math.max(0, e));
   for (let i = 0; i < t.length - 1; i++) {
     const [n, r, c] = t[i], [d, h, u] = t[i + 1];
@@ -1577,7 +1577,7 @@ function $e(o, e, t = { ct: !0, color: !0, dim: !0 }) {
   const n = re(ve(o, "col"), s);
   if (o.color_mode === "color") {
     if (t.color) {
-      const r = o.colors === "custom" && o.sequence.length >= 2, c = Rs(o, r ? s : n);
+      const r = o.colors === "custom" && o.sequence.length >= 2, c = js(o, r ? s : n);
       return r && c.bri !== null && (i = c.bri), { bri: i, kelvin: null, rgb: c.rgb };
     }
     if (t.ct) {
@@ -1625,7 +1625,7 @@ function Qt(o, e) {
     t[s] = s in o ? Qt(o[s], i) : i;
   return t;
 }
-const U = L`
+const U = O`
   :host {
     --db-accent: #ffb547;
     --db-accent-strong: #ff8a4c;
@@ -1825,7 +1825,7 @@ const U = L`
     outline: 2px solid var(--db-accent);
     outline-offset: 2px;
   }
-`, je = (o) => o?.config?.time_zone || void 0;
+`, Re = (o) => o?.config?.time_zone || void 0;
 function es(o) {
   const e = o?.locale?.time_format;
   if (e === "12") return !0;
@@ -1837,7 +1837,7 @@ function q(o, e) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: es(o),
-    timeZone: je(o)
+    timeZone: Re(o)
   }).format(t);
 }
 function x(o, e) {
@@ -1849,13 +1849,13 @@ function x(o, e) {
     timeZone: "UTC"
   }).format(new Date(Date.UTC(2024, 0, 1, t, s)));
 }
-function j(o, e) {
+function R(o, e) {
   const t = typeof e == "string" ? new Date(e.length === 10 ? `${e}T12:00:00Z` : e) : e;
   return new Intl.DateTimeFormat(Oe(o), {
     weekday: "short",
     day: "numeric",
     month: "short",
-    timeZone: typeof e == "string" && e.length === 10 ? "UTC" : je(o)
+    timeZone: typeof e == "string" && e.length === 10 ? "UTC" : Re(o)
   }).format(t);
 }
 function Ve(o, e, t = Date.now()) {
@@ -1877,7 +1877,7 @@ function J(o, e = /* @__PURE__ */ new Date()) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-    timeZone: je(o)
+    timeZone: Re(o)
   }).format(e);
 }
 function tt(o, e) {
@@ -1886,7 +1886,7 @@ function tt(o, e) {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-    timeZone: je(o)
+    timeZone: Re(o)
   }).format(t);
 }
 function ie(o, e) {
@@ -1910,7 +1910,7 @@ function Pt(o, e) {
 }
 function st(o, e) {
   const t = e.repeat;
-  if (t.type === "once") return t.date ? a(o, "on_date", { date: j(o, t.date) }) : a(o, "once");
+  if (t.type === "once") return t.date ? a(o, "on_date", { date: R(o, t.date) }) : a(o, "once");
   if (t.type === "interval")
     return a(o, t.unit === "weeks" ? "every_n_weeks" : "every_n_days", { n: t.interval });
   if (t.type === "pattern")
@@ -2002,7 +2002,7 @@ const at = class at extends N {
         ${s.map(
       (w) => l`<span><i class="dot" style="background:${Ie(w)}"></i>${a(e, `sun_${w}`)}</span>`
     )}
-        <span>${j(e, this.date)}</span>
+        <span>${R(e, this.date)}</span>
       </div>
     `;
   }
@@ -2067,7 +2067,7 @@ const at = class at extends N {
 };
 at.styles = [
   U,
-  L`
+  O`
       :host {
         display: flex;
         flex-direction: column;
@@ -2171,14 +2171,23 @@ ye([
   b()
 ], Z.prototype, "_sun");
 customElements.define("db-sun-wake", Z);
-var Is = Object.defineProperty, D = (o, e, t, s) => {
+var Is = Object.defineProperty, L = (o, e, t, s) => {
   for (var i = void 0, n = o.length - 1, r; n >= 0; n--)
     (r = o[n]) && (i = r(e, t, i) || i);
   return i && Is(e, t, i), i;
 };
 const rt = class rt extends N {
   constructor() {
-    super(...arguments), this.time = "07:00", this.lead = 30, this.snooze = 9, this.count = 3, this.lastCall = !1, this.fixedWake = !1, this.showSnooze = !0, this.startLabel = "", this.wakeLabel = "", this.gradient = "linear-gradient(90deg,#3a1a12,#ff8a4c,#fff3e0)", this._dragText = "";
+    super(...arguments), this.time = "07:00", this.lead = 30, this.snooze = 9, this.count = 3, this.lastCall = !1, this.fixedWake = !1, this.showSnooze = !0, this.startLabel = "", this.wakeLabel = "", this.gradient = "linear-gradient(90deg,#3a1a12,#ff8a4c,#fff3e0)", this._dragText = "", this._width = 600;
+  }
+  connectedCallback() {
+    super.connectedCallback(), this._ro = new ResizeObserver((e) => {
+      const t = Math.round(e[0].contentRect.width);
+      t && Math.abs(t - this._width) > 20 && (this._width = t);
+    }), this._ro.observe(this);
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback(), this._ro?.disconnect();
   }
   /** Minutes covered by the bar, from light start. */
   get _span() {
@@ -2237,7 +2246,7 @@ const rt = class rt extends N {
     s < -720 && (s += 1440), this._emit(this.time, this.lead, v(Math.round(s / this.snooze), 1, 10));
   }
   render() {
-    const e = this.hass, t = E(y(this.time) - this.lead), s = this.snooze * this.count, i = E(y(this.time) + s), n = this._pct(this.lead), r = this._pct(this.lead + s), c = Math.max(3, Math.floor((this.clientWidth || 600) / 84)), d = [5, 10, 15, 30, 60, 120].find((m) => this._span / m <= c) ?? 120, h = Math.ceil(y(t) / d) * d - y(t), u = [];
+    const e = this.hass, t = E(y(this.time) - this.lead), s = this.snooze * this.count, i = E(y(this.time) + s), n = this._pct(this.lead), r = this._pct(this.lead + s), c = Math.max(3, Math.floor(this._width / 84)), d = [5, 10, 15, 30, 60, 120].find((m) => this._span / m <= c) ?? 120, h = Math.ceil(y(t) / d) * d - y(t), u = [];
     for (let m = h; m <= this._span; m += d)
       u.push({ pct: this._pct(m), text: x(e, E(y(t) + m)) });
     const _ = this.lastCall ? a(e, "tl_last_call") : a(e, "tl_stop"), f = this._drag === "wake" ? n : r;
@@ -2301,7 +2310,10 @@ const rt = class rt extends N {
 };
 rt.styles = [
   U,
-  L`
+  O`
+      :host {
+        display: block;
+      }
       .labels {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2322,15 +2334,17 @@ rt.styles = [
         align-items: flex-end;
       }
       .labels input {
-        font-size: 20px;
+        font-size: clamp(15px, 3.6vw, 20px);
         height: 44px;
-        width: 160px;
+        width: 100%;
+        max-width: 170px;
         text-align: center;
+        padding: 0 6px;
       }
       .labels label:nth-child(2) input {
-        font-size: 24px;
+        font-size: clamp(17px, 4.4vw, 24px);
         font-weight: 600;
-        width: 200px;
+        max-width: 210px;
       }
       .bar {
         position: relative;
@@ -2435,58 +2449,63 @@ rt.styles = [
         transform: translateX(-100%);
       }
       @media (max-width: 520px) {
-        .labels input {
-          font-size: 16px;
-          width: 112px;
+        .labels {
+          gap: 6px;
         }
-        .labels label:nth-child(2) input {
-          font-size: 18px;
-          width: 124px;
+        .labels input {
+          height: 40px;
+          padding: 0 2px;
+        }
+        .labels input::-webkit-calendar-picker-indicator {
+          display: none;
         }
       }
     `
 ];
-let C = rt;
-D([
+let M = rt;
+L([
   g({ attribute: !1 })
-], C.prototype, "hass");
-D([
+], M.prototype, "hass");
+L([
   g()
-], C.prototype, "time");
-D([
+], M.prototype, "time");
+L([
   g({ type: Number })
-], C.prototype, "lead");
-D([
+], M.prototype, "lead");
+L([
   g({ type: Number })
-], C.prototype, "snooze");
-D([
+], M.prototype, "snooze");
+L([
   g({ type: Number })
-], C.prototype, "count");
-D([
+], M.prototype, "count");
+L([
   g({ type: Boolean })
-], C.prototype, "lastCall");
-D([
+], M.prototype, "lastCall");
+L([
   g({ type: Boolean })
-], C.prototype, "fixedWake");
-D([
+], M.prototype, "fixedWake");
+L([
   g({ type: Boolean })
-], C.prototype, "showSnooze");
-D([
+], M.prototype, "showSnooze");
+L([
   g()
-], C.prototype, "startLabel");
-D([
+], M.prototype, "startLabel");
+L([
   g()
-], C.prototype, "wakeLabel");
-D([
+], M.prototype, "wakeLabel");
+L([
   g()
-], C.prototype, "gradient");
-D([
+], M.prototype, "gradient");
+L([
   b()
-], C.prototype, "_drag");
-D([
+], M.prototype, "_drag");
+L([
   b()
-], C.prototype, "_dragText");
-customElements.define("db-time-line", C);
+], M.prototype, "_dragText");
+L([
+  b()
+], M.prototype, "_width");
+customElements.define("db-time-line", M);
 var Ks = Object.defineProperty, he = (o, e, t, s) => {
   for (var i = void 0, n = o.length - 1, r; n >= 0; n--)
     (r = o[n]) && (i = r(e, t, i) || i);
@@ -2584,7 +2603,7 @@ const ot = class ot extends N {
 };
 ot.styles = [
   U,
-  L`
+  O`
       .axis {
         position: relative;
         user-select: none;
@@ -2712,14 +2731,23 @@ he([
   b()
 ], H.prototype, "_drag");
 customElements.define("db-shift-line", H);
-var Vs = Object.defineProperty, O = (o, e, t, s) => {
+var Vs = Object.defineProperty, D = (o, e, t, s) => {
   for (var i = void 0, n = o.length - 1, r; n >= 0; n--)
     (r = o[n]) && (i = r(e, t, i) || i);
   return i && Vs(e, t, i), i;
 };
-const Y = 600, R = 180, M = 14, Nt = ["natural", "gentle", "linear", "fast"], lt = class lt extends N {
+const Y = 600, j = 180, P = 14, Nt = ["natural", "gentle", "linear", "fast"], lt = class lt extends N {
   constructor() {
-    super(...arguments), this.mode = "normal", this.locked = !1, this.duration = 30, this.start = "06:30", this.colorLamps = [], this.plainLamps = [], this.showFine = !0, this._channel = "bri", this._sel = -1, this._open = { bri: !0, col: !0, fine: !1 };
+    super(...arguments), this.mode = "normal", this.locked = !1, this.duration = 30, this.start = "06:30", this.colorLamps = [], this.plainLamps = [], this.showFine = !0, this._channel = "bri", this._sel = -1, this._width = 600, this._open = { bri: !0, col: !0, fine: !1 };
+  }
+  connectedCallback() {
+    super.connectedCallback(), this._ro = new ResizeObserver((e) => {
+      const t = Math.round(e[0].contentRect.width);
+      t && Math.abs(t - this._width) > 20 && (this._width = t);
+    }), this._ro.observe(this);
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback(), this._ro?.disconnect();
   }
   get s() {
     return this.settings;
@@ -2744,11 +2772,11 @@ const Y = 600, R = 180, M = 14, Nt = ["natural", "gentle", "linear", "fast"], lt
     this._emit(s);
   }
   _xy(e) {
-    return { x: M + e.t * (Y - 2 * M), y: R - M - e.v * (R - 2 * M) };
+    return { x: P + e.t * (Y - 2 * P), y: j - P - e.v * (j - 2 * P) };
   }
   _fromEvent(e) {
-    const s = this.shadowRoot.querySelector(".graph svg").getBoundingClientRect(), i = (e.clientX - s.left) / s.width * Y, n = (e.clientY - s.top) / s.height * R;
-    return { t: v((i - M) / (Y - 2 * M), 0, 1), v: v((R - M - n) / (R - 2 * M), 0, 1) };
+    const s = this.shadowRoot.querySelector(".graph svg").getBoundingClientRect(), i = (e.clientX - s.left) / s.width * Y, n = (e.clientY - s.top) / s.height * j;
+    return { t: v((i - P) / (Y - 2 * P), 0, 1), v: v((j - P - n) / (j - 2 * P), 0, 1) };
   }
   _curveDown(e, t) {
     this.locked || this.mode === "simple" || (t.stopPropagation(), this._sel = e, this._drag = { kind: "curve", index: e }, t.currentTarget.setPointerCapture(t.pointerId));
@@ -2784,22 +2812,22 @@ const Y = 600, R = 180, M = 14, Nt = ["natural", "gentle", "linear", "fast"], lt
     const e = this.hass, t = this._points(), s = this.s.separate ? this._channel : "bri", i = ve(this.s, s), n = Array.from({ length: 81 }, (m, $) => {
       const W = this._xy({ t: $ / 80, v: re(i, $ / 80) });
       return `${$ ? "L" : "M"}${W.x.toFixed(1)},${W.y.toFixed(1)}`;
-    }).join(" "), r = `${n} L${Y - M},${R - M} L${M},${R - M} Z`, c = this.mode !== "simple" && !this.locked, d = [0.25, 0.5, 0.75].map((m) => this._xy({ t: 0, v: m }).y), h = this._tickMinutes(), u = [];
+    }).join(" "), r = `${n} L${Y - P},${j - P} L${P},${j - P} Z`, c = this.mode !== "simple" && !this.locked, d = [0.25, 0.5, 0.75].map((m) => this._xy({ t: 0, v: m }).y), h = this._tickMinutes(), u = [];
     for (let m = h; m < this.duration; m += h) u.push(m / this.duration);
     const _ = this._drag?.kind === "curve" ? t[this._drag.index] : void 0, f = _ ? this._xy(_) : void 0;
     return l`
       <div class="graph edit">
-        <svg viewBox="0 0 ${Y} ${R}" @pointermove=${this._curveMove} @pointerup=${() => this._drag = void 0}
+        <svg viewBox="0 0 ${Y} ${j}" @pointermove=${this._curveMove} @pointerup=${() => this._drag = void 0}
           @pointercancel=${() => this._drag = void 0}>
           <defs>
             <linearGradient id="fillg" x1="0" x2="1" y1="0" y2="0">
               ${Array.from({ length: 9 }, (m, $) => ae`<stop offset=${$ / 8} stop-color=${et($e(this.s, $ / 8), !1)} stop-opacity="0.35"/>`)}
             </linearGradient>
           </defs>
-          ${d.map((m) => ae`<line x1=${M} x2=${Y - M} y1=${m} y2=${m} stroke="var(--db-line)" stroke-dasharray="3 5"/>`)}
+          ${d.map((m) => ae`<line x1=${P} x2=${Y - P} y1=${m} y2=${m} stroke="var(--db-line)" stroke-dasharray="3 5"/>`)}
           ${u.map((m) => {
       const $ = this._xy({ t: m, v: 0 }).x;
-      return ae`<line x1=${$} x2=${$} y1=${M} y2=${R - M} stroke="var(--db-line)" stroke-dasharray="2 6"/>`;
+      return ae`<line x1=${$} x2=${$} y1=${P} y2=${j - P} stroke="var(--db-line)" stroke-dasharray="2 6"/>`;
     })}
           <path d=${r} fill="url(#fillg)"/>
           <path d=${n} fill="none" stroke="var(--db-accent)" stroke-width="3" stroke-linecap="round"/>
@@ -2811,7 +2839,7 @@ const Y = 600, R = 180, M = 14, Nt = ["natural", "gentle", "linear", "fast"], lt
                 </g>`;
     }) : p}
         </svg>
-        ${_ && f ? l`<span class="tip" style="left:${f.x / Y * 100}%;top:${f.y / R * 100}%">
+        ${_ && f ? l`<span class="tip" style="left:${f.x / Y * 100}%;top:${f.y / j * 100}%">
               ${this._timeAt(_.t)} · ${Math.round(_.v * 100)}%
             </span>` : p}
         <div class="strip" style="background:${te(this.s)}" title=${a(e, "ls_strip")}></div>
@@ -2894,7 +2922,7 @@ const Y = 600, R = 180, M = 14, Nt = ["natural", "gentle", "linear", "fast"], lt
   }
   /** Label every n-th tick so that 12 h labels never overlap. */
   _labelEvery() {
-    const e = this.duration / this._tickMinutes(), t = Math.max(3, Math.floor((this.clientWidth || 600) / 84));
+    const e = this.duration / this._tickMinutes(), t = Math.max(3, Math.floor(this._width / 84));
     return Math.max(1, Math.ceil(e / t));
   }
   _barMarks(e) {
@@ -3108,7 +3136,7 @@ const Y = 600, R = 180, M = 14, Nt = ["natural", "gentle", "linear", "fast"], lt
 };
 lt.styles = [
   U,
-  L`
+  O`
       :host {
         display: flex;
         flex-direction: column;
@@ -3325,47 +3353,50 @@ lt.styles = [
       }
     `
 ];
-let P = lt;
-O([
+let C = lt;
+D([
   g({ attribute: !1 })
-], P.prototype, "hass");
-O([
+], C.prototype, "hass");
+D([
   g({ attribute: !1 })
-], P.prototype, "settings");
-O([
+], C.prototype, "settings");
+D([
   g()
-], P.prototype, "mode");
-O([
+], C.prototype, "mode");
+D([
   g({ type: Boolean, reflect: !0 })
-], P.prototype, "locked");
-O([
+], C.prototype, "locked");
+D([
   g({ type: Number })
-], P.prototype, "duration");
-O([
+], C.prototype, "duration");
+D([
   g()
-], P.prototype, "start");
-O([
+], C.prototype, "start");
+D([
   g({ attribute: !1 })
-], P.prototype, "colorLamps");
-O([
+], C.prototype, "colorLamps");
+D([
   g({ attribute: !1 })
-], P.prototype, "plainLamps");
-O([
+], C.prototype, "plainLamps");
+D([
   g({ type: Boolean })
-], P.prototype, "showFine");
-O([
+], C.prototype, "showFine");
+D([
   b()
-], P.prototype, "_channel");
-O([
+], C.prototype, "_channel");
+D([
   b()
-], P.prototype, "_sel");
-O([
+], C.prototype, "_sel");
+D([
   b()
-], P.prototype, "_drag");
-O([
+], C.prototype, "_drag");
+D([
   b()
-], P.prototype, "_open");
-customElements.define("db-light-settings", P);
+], C.prototype, "_width");
+D([
+  b()
+], C.prototype, "_open");
+customElements.define("db-light-settings", C);
 var Zs = Object.defineProperty, A = (o, e, t, s) => {
   for (var i = void 0, n = o.length - 1, r; n >= 0; n--)
     (r = o[n]) && (i = r(e, t, i) || i);
@@ -3677,7 +3708,7 @@ const Lt = ["light_start", "wake", "snooze", "stop"], Dt = ["snow", "storm", "ra
                         @click=${() => this._sub("repeat", { weeks: t.weeks.map((h, u) => u === c ? !h : h) })}>
                         <b>${a(e, "week_n", { n: c + 1 })}</b>
                         <span>${r ? a(e, "week_on") : a(e, "week_off")}</span>
-                        <span class="muted">${j(e, d)} – ${j(e, ie(d, 6))}</span>
+                        <span class="muted">${R(e, d)} – ${R(e, ie(d, 6))}</span>
                       </button>`;
     })}
                   </div>
@@ -3735,7 +3766,7 @@ const Lt = ["light_start", "wake", "snooze", "stop"], Dt = ["snow", "storm", "ra
         ${Ce(e).map((r) => l`<span class="head">${r}</span>`)}
         ${n.map((r) => {
       const c = r >= s && (Pt(t, r) || t.once?.date === r), d = r === t.skip_date;
-      return l`<span class="${c ? "on" : ""} ${d ? "skip" : ""}" title=${j(e, r)}>${Number(r.slice(8))}</span>`;
+      return l`<span class="${c ? "on" : ""} ${d ? "skip" : ""}" title=${R(e, r)}>${Number(r.slice(8))}</span>`;
     })}
       </div>
     </div>`;
@@ -4196,7 +4227,7 @@ const Lt = ["light_start", "wake", "snooze", "stop"], Dt = ["snow", "storm", "ra
 };
 ct.styles = [
   U,
-  L`
+  O`
       :host {
         display: block;
       }
@@ -4753,7 +4784,7 @@ const dt = class dt extends N {
 };
 dt.styles = [
   U,
-  L`
+  O`
       .wrap {
         display: grid;
         grid-template-columns: 260px minmax(0, 1fr);
@@ -5028,7 +5059,7 @@ const ht = class ht extends N {
 };
 ht.styles = [
   U,
-  L`
+  O`
       .wrap {
         display: grid;
         grid-template-columns: 260px minmax(0, 1fr);
@@ -5293,7 +5324,7 @@ const ei = ["snow", "storm", "rain"], pt = class pt extends N {
 };
 pt.styles = [
   U,
-  L`
+  O`
       :host {
         display: flex;
         flex-direction: column;
@@ -5538,7 +5569,7 @@ const ut = class ut extends N {
     const n = i.runtime, r = e.light_profiles.find((u) => u.id === i.light.profile), c = r?.settings ?? i.light.settings, d = it(t, i.light.targets), h = J(t, new Date(s.time));
     return l`<div class="top">
       <section class="card hero">
-        <div class="lbl">${a(t, "next_alarm")} · ${j(t, s.time)}</div>
+        <div class="lbl">${a(t, "next_alarm")} · ${R(t, s.time)}</div>
         <div class="times">
           ${n.next_light_start && n.next_light_start !== s.time ? l`<div><div class="muted">${a(t, "tl_light_start")}</div>
                 <div class="mid tabular">${q(t, n.next_light_start)}</div></div>` : p}
@@ -5581,7 +5612,7 @@ const ut = class ut extends N {
   _row(e) {
     const t = this.hass, s = e.runtime, i = Ce(t), n = e.repeat.type === "weekly" ? l`<div class="pills">${i.map((d, h) => l`<span class=${e.repeat.days.includes(h) ? "on" : ""}>${d.slice(0, 2)}</span>`)}</div>` : p;
     let r;
-    Ke.includes(s.state) ? r = a(t, `state_${s.state}`) : e.skip_date ? r = a(t, "skipped", { date: j(t, e.skip_date) }) : s.next_alarm ? r = `${j(t, s.next_alarm)} · ${Ve(t, s.next_alarm, this._now)}` : r = a(t, `state_${s.state}`);
+    Ke.includes(s.state) ? r = a(t, `state_${s.state}`) : e.skip_date ? r = a(t, "skipped", { date: R(t, e.skip_date) }) : s.next_alarm ? r = `${R(t, s.next_alarm)} · ${Ve(t, s.next_alarm, this._now)}` : r = a(t, `state_${s.state}`);
     const c = s.next_alarm ? q(t, s.next_alarm) : e.wake.type === "fixed" ? x(t, e.wake.time) : "–";
     return l`<div class="alarm ${e.enabled ? "" : "off"}" role="button" tabindex="0"
       @click=${() => this._edit(e)} @keydown=${(d) => d.key === "Enter" && this._edit(e)}>
@@ -5607,7 +5638,7 @@ const ut = class ut extends N {
 };
 ut.styles = [
   U,
-  L`
+  O`
       :host {
         display: block;
         min-height: 100vh;
@@ -5834,8 +5865,13 @@ ut.styles = [
           font-size: 40px;
         }
         .alarm .time {
-          font-size: 28px;
-          min-width: 88px;
+          font-size: 24px;
+          min-width: 0;
+        }
+        .pills span {
+          width: 20px;
+          height: 20px;
+          font-size: 10px;
         }
         .alarm {
           gap: 10px;
@@ -5916,7 +5952,7 @@ class se extends N {
   }
   stateText(e) {
     const t = this.hass, s = e.runtime;
-    return s.state === "snoozed" && s.snooze_until ? a(t, "state_snoozed", { time: q(t, s.snooze_until) }) : this.isActive(e) ? a(t, `state_${s.state}`) : e.skip_date ? a(t, "skipped", { date: j(t, e.skip_date) }) : s.next_alarm ? `${j(t, s.next_alarm)} · ${Ve(t, s.next_alarm, this.now)}` : a(t, `state_${s.state}`);
+    return s.state === "snoozed" && s.snooze_until ? a(t, "state_snoozed", { time: q(t, s.snooze_until) }) : this.isActive(e) ? a(t, `state_${s.state}`) : e.skip_date ? a(t, "skipped", { date: R(t, e.skip_date) }) : s.next_alarm ? `${R(t, s.next_alarm)} · ${Ve(t, s.next_alarm, this.now)}` : a(t, `state_${s.state}`);
   }
   repeatText(e) {
     return st(this.hass, e);
@@ -5950,7 +5986,7 @@ ke([
 ], se.prototype, "now");
 const is = [
   U,
-  L`
+  O`
     :host {
       display: block;
       --db-icon-bg: color-mix(in srgb, var(--state-icon-color, var(--primary-color)) 20%, transparent);
@@ -5961,6 +5997,9 @@ const is = [
       --db-icon-bg: color-mix(in srgb, var(--db-accent) 22%, transparent);
       --db-icon: var(--db-accent-strong);
       --db-active: var(--db-accent);
+    }
+    :host(:not([accent])) .switch[aria-checked="true"] {
+      background: var(--switch-checked-track-color, var(--primary-color));
     }
     ha-card {
       height: 100%;
@@ -6130,7 +6169,7 @@ const li = () => document.querySelector("home-assistant")?.hass, _t = class _t e
 };
 _t.styles = [
   ...is,
-  L`
+  O`
       .title {
         padding: 16px 16px 4px;
         font-size: 16px;
@@ -6237,7 +6276,7 @@ const hi = () => document.querySelector("home-assistant")?.hass, mt = class mt e
     if (!e) return p;
     const t = this.hass, s = this._pick(), i = s?.runtime.next_alarm ?? s?.runtime.alarm_time;
     return e.size === "large" ? l`<ha-card><div class="large">
-        <div class="top"><span>${a(t, "next_alarm")}</span><span>${s && i ? j(t, i) : ""}</span></div>
+        <div class="top"><span>${a(t, "next_alarm")}</span><span>${s && i ? R(t, i) : ""}</span></div>
         <div class="big">${s && i ? q(t, i) : "–"}</div>
         <div class="sub">${s ? `${s.name} · ${this.stateText(s)}` : a(t, "no_next")}</div>
         ${s ? this._progress(s) : p}
@@ -6257,7 +6296,7 @@ const hi = () => document.querySelector("home-assistant")?.hass, mt = class mt e
 };
 mt.styles = [
   ...is,
-  L`
+  O`
       .tile {
         padding: 10px;
         display: flex;

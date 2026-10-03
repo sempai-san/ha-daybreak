@@ -25,10 +25,29 @@ export class DbTimeLine extends LitElement {
   @property() gradient = "linear-gradient(90deg,#3a1a12,#ff8a4c,#fff3e0)";
   @state() private _drag?: "wake" | "end";
   @state() private _dragText = "";
+  @state() private _width = 600;
+  private _ro?: ResizeObserver;
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w && Math.abs(w - this._width) > 20) this._width = w;
+    });
+    this._ro.observe(this);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._ro?.disconnect();
+  }
 
   static styles = [
     shared,
     css`
+      :host {
+        display: block;
+      }
       .labels {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -49,15 +68,17 @@ export class DbTimeLine extends LitElement {
         align-items: flex-end;
       }
       .labels input {
-        font-size: 20px;
+        font-size: clamp(15px, 3.6vw, 20px);
         height: 44px;
-        width: 160px;
+        width: 100%;
+        max-width: 170px;
         text-align: center;
+        padding: 0 6px;
       }
       .labels label:nth-child(2) input {
-        font-size: 24px;
+        font-size: clamp(17px, 4.4vw, 24px);
         font-weight: 600;
-        width: 200px;
+        max-width: 210px;
       }
       .bar {
         position: relative;
@@ -162,13 +183,15 @@ export class DbTimeLine extends LitElement {
         transform: translateX(-100%);
       }
       @media (max-width: 520px) {
-        .labels input {
-          font-size: 16px;
-          width: 112px;
+        .labels {
+          gap: 6px;
         }
-        .labels label:nth-child(2) input {
-          font-size: 18px;
-          width: 124px;
+        .labels input {
+          height: 40px;
+          padding: 0 2px;
+        }
+        .labels input::-webkit-calendar-picker-indicator {
+          display: none;
         }
       }
     `,
@@ -263,7 +286,7 @@ export class DbTimeLine extends LitElement {
     const wakePct = this._pct(this.lead);
     const endPct = this._pct(this.lead + endMinutes);
     // Enough room for each label (12 h clocks are wide).
-    const maxLabels = Math.max(3, Math.floor((this.clientWidth || 600) / 84));
+    const maxLabels = Math.max(3, Math.floor(this._width / 84));
     const tickEvery = [5, 10, 15, 30, 60, 120].find((m) => this._span / m <= maxLabels) ?? 120;
     const firstTick = Math.ceil(toMin(startTime) / tickEvery) * tickEvery - toMin(startTime);
     const ticks: { pct: number; text: string }[] = [];

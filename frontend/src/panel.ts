@@ -303,8 +303,13 @@ export class DaybreakPanel extends LitElement {
           font-size: 40px;
         }
         .alarm .time {
-          font-size: 28px;
-          min-width: 88px;
+          font-size: 24px;
+          min-width: 0;
+        }
+        .pills span {
+          width: 20px;
+          height: 20px;
+          font-size: 10px;
         }
         .alarm {
           gap: 10px;

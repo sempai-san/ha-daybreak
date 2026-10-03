@@ -41,6 +41,23 @@ export class DbLightSettings extends LitElement {
   @state() private _channel: "bri" | "col" = "bri";
   @state() private _sel = -1;
   @state() private _drag?: { kind: "curve" | "bar"; index: number };
+  @state() private _width = 600;
+  private _ro?: ResizeObserver;
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w && Math.abs(w - this._width) > 20) this._width = w;
+    });
+    this._ro.observe(this);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._ro?.disconnect();
+  }
+
   @state() private _open: Record<string, boolean> = { bri: true, col: true, fine: false };
 
   static styles = [
@@ -511,7 +528,7 @@ export class DbLightSettings extends LitElement {
   /** Label every n-th tick so that 12 h labels never overlap. */
   private _labelEvery() {
     const ticks = this.duration / this._tickMinutes();
-    const room = Math.max(3, Math.floor((this.clientWidth || 600) / 84));
+    const room = Math.max(3, Math.floor(this._width / 84));
     return Math.max(1, Math.ceil(ticks / room));
   }
 
