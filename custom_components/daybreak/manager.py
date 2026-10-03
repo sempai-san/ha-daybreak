@@ -1404,8 +1404,8 @@ class DaybreakManager:
 
     @staticmethod
     def _presence_entities(alarm: dict[str, Any]) -> list[str]:
-        """Presence entities; the owners when none are set."""
-        return alarm["presence"]["entities"] or alarm["owners"]
+        """Presence entities. None set means: no presence check at all."""
+        return alarm["presence"]["entities"]
 
     def _anyone_home(self, entities: list[str]) -> bool:
         """True if any presence entity reports someone at home.

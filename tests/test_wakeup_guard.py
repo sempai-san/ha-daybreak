@@ -82,15 +82,18 @@ async def test_skip_when_nobody_home(
     assert nxt.day == 6
 
 
-async def test_owners_are_default_presence(
+async def test_owners_are_no_presence_check(
     hass: HomeAssistant, manager, lights, freezer: FrozenDateTimeFactory
 ) -> None:
+    """Without presence entities the alarm runs, even if its owner is away."""
     _morning(freezer, 6, 0)
     hass.states.async_set(PERSON, "not_home")
     skipped = async_capture_events(hass, EVENT_ALARM_SKIPPED)
+    started = async_capture_events(hass, EVENT_SUNRISE_STARTED)
     await manager.async_create(_alarm(10, owners=[PERSON]))
     await advance(hass, freezer, timedelta(minutes=21))
-    assert skipped
+    assert not skipped
+    assert started
 
 
 async def test_unknown_presence_counts_as_home(
