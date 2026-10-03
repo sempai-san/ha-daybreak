@@ -106,6 +106,43 @@ BEHAVIOR_SCHEMA = vol.Schema(
     }
 )
 
+PRESENCE_SCHEMA = vol.Schema(
+    {
+        # Persons, device trackers, occupancy sensors... Empty = ignore presence.
+        vol.Optional("entities", default=list): vol.All(cv.ensure_list, [cv.entity_id]),
+        # Nobody home when the alarm would start: skip this occurrence.
+        vol.Optional("skip_when_away", default=True): cv.boolean,
+        # Everybody left while the alarm runs: stop it.
+        vol.Optional("stop_when_away", default=True): cv.boolean,
+    }
+)
+
+
+def _actions(value: Any) -> list[dict[str, Any]]:
+    """Validate HA actions but keep the raw (JSON-serialisable) config."""
+    value = cv.ensure_list(value)
+    cv.SCRIPT_SCHEMA(deepcopy(value))
+    return value
+
+
+LAST_CALL_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=False): cv.boolean,
+        # Minutes after the alarm time without a stop until the last call fires.
+        vol.Optional("after_minutes", default=20): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=240)
+        ),
+        # The last call ends on its own after this many minutes.
+        vol.Optional("duration", default=10): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
+        # Lights for the last call. Empty = the alarm's own lights.
+        vol.Optional("target", default=dict): TARGET_SCHEMA,
+        vol.Optional("brightness", default=100): PERCENT,
+        vol.Optional("kelvin", default=5000): vol.Any(None, KELVIN),
+        # Any Home Assistant actions: scenes, scripts, media, covers...
+        vol.Optional("actions", default=list): _actions,
+    }
+)
+
 ALARM_SCHEMA = vol.Schema(
     {
         vol.Optional("id"): cv.string,
@@ -124,6 +161,8 @@ ALARM_SCHEMA = vol.Schema(
         vol.Optional("skip_date"): vol.Any(None, _date_str),
         vol.Optional("light", default=dict): LIGHT_SCHEMA,
         vol.Optional("behavior", default=dict): BEHAVIOR_SCHEMA,
+        vol.Optional("presence", default=dict): PRESENCE_SCHEMA,
+        vol.Optional("last_call", default=dict): LAST_CALL_SCHEMA,
     },
     extra=vol.REMOVE_EXTRA,
 )

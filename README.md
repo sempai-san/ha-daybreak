@@ -18,6 +18,8 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - **Snooze, stop, skip next, test run**: from the panel, cards, entities or actions
 - **Auto stop** after a configurable time, with the light kept on or turned off
 - **Manual override**: turning the alarm lights off stops the alarm
+- **Presence aware**: skip the alarm when nobody is home and stop it when everybody leaves (persons, device trackers, occupancy sensors; an unavailable tracker never silences an alarm)
+- **Last call**: overslept? If the alarm is still running a set time after the alarm time (even when only snoozed), DayBreak switches the chosen lights on at full brightness and runs any Home Assistant actions (scene, script, music…), for a limited time only
 - **Simple / Normal / Expert** editor modes
 - **Dashboard cards** with visual editors
 - English and German UI
@@ -67,7 +69,7 @@ Each alarm gets its own device with:
 | `switch.<alarm>` | Alarm enabled |
 | `switch.<alarm>_skip_next` | Skip the next occurrence |
 | `sensor.<alarm>_next_alarm` | Next alarm time (timestamp) |
-| `sensor.<alarm>_status` | `disabled`, `idle`, `scheduled`, `sunrise`, `ringing`, `snoozed` |
+| `sensor.<alarm>_status` | `disabled`, `idle`, `scheduled`, `sunrise`, `ringing`, `snoozed`, `last_call` |
 | `button.<alarm>_snooze` / `_stop` / `_test` | Actions |
 
 Global: `sensor.daybreak_next_alarm` (the next alarm of all alarms) and `binary_sensor.daybreak_alarm_active`.
@@ -100,7 +102,9 @@ actions:
 
 ## Events
 
-`daybreak_sunrise_started`, `daybreak_alarm_ringing`, `daybreak_alarm_snoozed`, `daybreak_alarm_stopped`, `daybreak_alarm_skipped`, `daybreak_alarm_finished`. Every event carries `alarm_id` and `name`. Some events carry more data, such as `reason` or `test`.
+`daybreak_sunrise_started`, `daybreak_alarm_ringing`, `daybreak_alarm_snoozed`, `daybreak_alarm_stopped`, `daybreak_alarm_skipped`, `daybreak_alarm_finished`, `daybreak_last_call`. Every event carries `alarm_id` and `name`. Some events carry more data, such as `reason` (`stopped`, `auto_stop`, `manual_light_off`, `away`, `last_call_timeout`, …) or `test`.
+
+Last call actions can use the variables `alarm_id`, `name` and `test` in templates.
 
 ```yaml
 triggers:

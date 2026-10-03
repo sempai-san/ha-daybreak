@@ -33,7 +33,19 @@ export const DEFAULT_ALARM: AlarmInput = {
     after_stop: "keep",
     stop_on_light_off: true,
   },
+  presence: { entities: [], skip_when_away: true, stop_when_away: true },
+  last_call: {
+    enabled: false,
+    after_minutes: 20,
+    duration: 10,
+    target: {},
+    brightness: 100,
+    kelvin: 5000,
+    actions: [],
+  },
 };
+
+type Part = "root" | "light" | "behavior" | "presence" | "last_call";
 
 const DEFAULT_POINTS: CurvePoint[] = [
   { t: 0, brightness: 1, kelvin: 2000 },
@@ -63,6 +75,8 @@ export class DaybreakAlarmEditor extends LitElement {
   }
 
   private _label = (field: { name: string }) => t(this.hass, `f_${field.name}` as StringKey);
+  private _lcLabel = (field: { name: string }) =>
+    t(this.hass, (["duration", "target"].includes(field.name) ? `lc_${field.name}` : `f_${field.name}`) as StringKey);
 
   private _opts(prefix: string, values: string[]) {
     return values.map((value) => ({ value, label: t(this.hass, `${prefix}_${value}` as StringKey) }));
@@ -133,7 +147,38 @@ export class DaybreakAlarmEditor extends LitElement {
     return schema;
   }
 
-  private _patch(part: "root" | "light" | "behavior", value: Record<string, any>) {
+  private _presenceSchema(): Schema[] {
+    const schema: Schema[] = [
+      { name: "entities", selector: { entity: { multiple: true, domain: ["person", "device_tracker", "binary_sensor", "input_boolean", "zone", "group"] } } },
+    ];
+    if (this.mode === "expert" && this._draft?.presence.entities.length) {
+      schema.push(
+        { name: "skip_when_away", selector: { boolean: {} } },
+        { name: "stop_when_away", selector: { boolean: {} } },
+      );
+    }
+    return schema;
+  }
+
+  private _lastCallSchema(): Schema[] {
+    const schema: Schema[] = [{ name: "enabled", selector: { boolean: {} } }];
+    if (!this._draft?.last_call.enabled) return schema;
+    schema.push(
+      { name: "after_minutes", selector: num(1, 240, 1, "min") },
+      { name: "duration", selector: num(1, 120, 1, "min") },
+    );
+    if (this.mode === "expert") {
+      schema.push(
+        { name: "target", selector: { target: { entity: { domain: "light" } } } },
+        { name: "brightness", selector: num(1, 100, 1, "%", "slider") },
+        { name: "kelvin", selector: { color_temp: { unit: "kelvin", min: 1500, max: 6500 } } },
+        { name: "actions", selector: { action: {} } },
+      );
+    }
+    return schema;
+  }
+
+  private _patch(part: Part, value: Record<string, any>) {
     const draft = structuredClone(this._draft!);
     if (part === "root") {
       Object.assign(draft, value);
@@ -144,7 +189,7 @@ export class DaybreakAlarmEditor extends LitElement {
       Object.assign(draft.light, value);
       if (switchedToCustom && draft.light.points.length < 2) draft.light.points = structuredClone(DEFAULT_POINTS);
     } else {
-      Object.assign(draft.behavior, value);
+      Object.assign(draft[part], value);
     }
     this._draft = draft;
   }
@@ -202,12 +247,12 @@ export class DaybreakAlarmEditor extends LitElement {
     fireEvent(this, "daybreak-mode", { mode });
   }
 
-  private _form(schema: Schema[], data: Record<string, any>, part: "root" | "light" | "behavior") {
+  private _form(schema: Schema[], data: Record<string, any>, part: Part) {
     return html`<ha-form
       .hass=${this.hass}
       .data=${data}
       .schema=${schema}
-      .computeLabel=${this._label}
+      .computeLabel=${part === "last_call" ? this._lcLabel : this._label}
       @value-changed=${(ev: CustomEvent) => this._patch(part, ev.detail.value)}
     ></ha-form>`;
   }
@@ -271,6 +316,18 @@ export class DaybreakAlarmEditor extends LitElement {
         ? html`<ha-card>
             <h2><ha-icon icon="mdi:sleep"></ha-icon>${t(hass, "section_behavior")}</h2>
             <div class="content">${this._form(this._behaviorSchema(), draft.behavior, "behavior")}</div>
+          </ha-card>`
+        : nothing}
+
+      ${this.mode !== "simple"
+        ? html`<ha-card>
+            <h2><ha-icon icon="mdi:account-clock-outline"></ha-icon>${t(hass, "section_no_reaction")}</h2>
+            <div class="content">
+              <p class="hint">${t(hass, "no_reaction_hint")}</p>
+              ${this._form(this._presenceSchema(), draft.presence, "presence")}
+              <div class="label">${t(hass, "section_last_call")}</div>
+              ${this._form(this._lastCallSchema(), draft.last_call, "last_call")}
+            </div>
           </ha-card>`
         : nothing}
 
@@ -343,6 +400,11 @@ export class DaybreakAlarmEditor extends LitElement {
     }
     .content {
       padding: 12px 16px 16px;
+    }
+    .hint {
+      margin: 0 0 12px;
+      color: var(--secondary-text-color);
+      font-size: 0.9em;
     }
     .label {
       margin: 16px 0 8px;

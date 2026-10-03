@@ -32,6 +32,7 @@ EVENT_ALARM_SNOOZED: Final = f"{DOMAIN}_alarm_snoozed"
 EVENT_ALARM_STOPPED: Final = f"{DOMAIN}_alarm_stopped"
 EVENT_ALARM_SKIPPED: Final = f"{DOMAIN}_alarm_skipped"
 EVENT_ALARM_FINISHED: Final = f"{DOMAIN}_alarm_finished"
+EVENT_LAST_CALL: Final = f"{DOMAIN}_last_call"
 
 # Runtime states of a single alarm.
 STATE_DISABLED: Final = "disabled"
@@ -40,6 +41,7 @@ STATE_SCHEDULED: Final = "scheduled"
 STATE_SUNRISE: Final = "sunrise"
 STATE_RINGING: Final = "ringing"
 STATE_SNOOZED: Final = "snoozed"
+STATE_LAST_CALL: Final = "last_call"
 ALARM_STATES: Final = [
     STATE_DISABLED,
     STATE_IDLE,
@@ -47,14 +49,17 @@ ALARM_STATES: Final = [
     STATE_SUNRISE,
     STATE_RINGING,
     STATE_SNOOZED,
+    STATE_LAST_CALL,
 ]
-ACTIVE_STATES: Final = {STATE_SUNRISE, STATE_RINGING, STATE_SNOOZED}
+ACTIVE_STATES: Final = {STATE_SUNRISE, STATE_RINGING, STATE_SNOOZED, STATE_LAST_CALL}
 
 # Why an alarm run ended (part of the stopped/finished events).
 END_STOPPED: Final = "stopped"
 END_AUTO_STOP: Final = "auto_stop"
 END_MANUAL_OFF: Final = "manual_light_off"
 END_DISABLED: Final = "disabled"
+END_AWAY: Final = "away"
+END_LAST_CALL_TIMEOUT: Final = "last_call_timeout"
 
 CURVE_LINEAR: Final = "linear"
 CURVE_SMOOTH: Final = "smooth"
