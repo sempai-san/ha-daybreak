@@ -1,0 +1,9 @@
+{
+  "services": {
+    "snooze": { "service": "mdi:sleep" },
+    "stop": { "service": "mdi:alarm-off" },
+    "skip_next": { "service": "mdi:debug-step-over" },
+    "cancel_skip": { "service": "mdi:undo" },
+    "test": { "service": "mdi:play-circle-outline" }
+  }
+}
