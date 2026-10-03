@@ -1,0 +1,135 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DayBreak",
+        "description": "Richtet den DayBreak Lichtwecker ein. Wecker werden im DayBreak-Panel in der Seitenleiste verwaltet."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "DayBreak ist bereits eingerichtet."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "active": {
+        "name": "Wecker aktiv"
+      }
+    },
+    "button": {
+      "snooze": {
+        "name": "Schlummern"
+      },
+      "stop": {
+        "name": "Stoppen"
+      },
+      "test": {
+        "name": "Testen"
+      }
+    },
+    "sensor": {
+      "next_alarm": {
+        "name": "Nächster Wecker"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "disabled": "Deaktiviert",
+          "idle": "Inaktiv",
+          "scheduled": "Geplant",
+          "sunrise": "Sonnenaufgang",
+          "ringing": "Klingelt",
+          "snoozed": "Schlummert"
+        }
+      }
+    },
+    "switch": {
+      "enabled": {
+        "name": "Aktiviert"
+      },
+      "skip_next": {
+        "name": "Nächsten überspringen"
+      }
+    }
+  },
+  "services": {
+    "snooze": {
+      "name": "Schlummern",
+      "description": "Schlummert einen klingelnden Wecker oder alle klingelnden Wecker.",
+      "fields": {
+        "alarm_id": {
+          "name": "Wecker-ID",
+          "description": "ID des Weckers. Leer lassen (und keine Entität), um alle laufenden Wecker zu steuern."
+        },
+        "entity_id": {
+          "name": "Wecker-Entität",
+          "description": "Eine beliebige DayBreak-Entität des Weckers, alternativ zur Wecker-ID."
+        },
+        "minutes": {
+          "name": "Minuten",
+          "description": "Schlummerdauer. Standard ist die Einstellung des Weckers."
+        }
+      }
+    },
+    "stop": {
+      "name": "Stoppen",
+      "description": "Stoppt einen laufenden Wecker oder alle laufenden Wecker.",
+      "fields": {
+        "alarm_id": {
+          "name": "Wecker-ID",
+          "description": "ID des Weckers. Leer lassen (und keine Entität), um alle laufenden Wecker zu steuern."
+        },
+        "entity_id": {
+          "name": "Wecker-Entität",
+          "description": "Eine beliebige DayBreak-Entität des Weckers, alternativ zur Wecker-ID."
+        }
+      }
+    },
+    "skip_next": {
+      "name": "Nächsten überspringen",
+      "description": "Überspringt das nächste Klingeln eines Weckers.",
+      "fields": {
+        "alarm_id": {
+          "name": "Wecker-ID",
+          "description": "ID des Weckers. Leer lassen (und keine Entität), um alle laufenden Wecker zu steuern."
+        },
+        "entity_id": {
+          "name": "Wecker-Entität",
+          "description": "Eine beliebige DayBreak-Entität des Weckers, alternativ zur Wecker-ID."
+        }
+      }
+    },
+    "cancel_skip": {
+      "name": "Überspringen aufheben",
+      "description": "Stellt ein übersprungenes Klingeln wieder her.",
+      "fields": {
+        "alarm_id": {
+          "name": "Wecker-ID",
+          "description": "ID des Weckers. Leer lassen (und keine Entität), um alle laufenden Wecker zu steuern."
+        },
+        "entity_id": {
+          "name": "Wecker-Entität",
+          "description": "Eine beliebige DayBreak-Entität des Weckers, alternativ zur Wecker-ID."
+        }
+      }
+    },
+    "test": {
+      "name": "Testen",
+      "description": "Startet den Wecker sofort mit verkürztem Sonnenaufgang.",
+      "fields": {
+        "alarm_id": {
+          "name": "Wecker-ID",
+          "description": "ID des Weckers. Leer lassen (und keine Entität), um alle laufenden Wecker zu steuern."
+        },
+        "entity_id": {
+          "name": "Wecker-Entität",
+          "description": "Eine beliebige DayBreak-Entität des Weckers, alternativ zur Wecker-ID."
+        },
+        "duration": {
+          "name": "Sonnenaufgangsdauer",
+          "description": "Länge des verkürzten Test-Sonnenaufgangs in Sekunden."
+        }
+      }
+    }
+  }
+}

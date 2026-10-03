@@ -1,0 +1,135 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DayBreak",
+        "description": "Adds the DayBreak sunrise alarm clock. Alarms are managed in the DayBreak sidebar panel."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "DayBreak is already set up."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "active": {
+        "name": "Alarm active"
+      }
+    },
+    "button": {
+      "snooze": {
+        "name": "Snooze"
+      },
+      "stop": {
+        "name": "Stop"
+      },
+      "test": {
+        "name": "Test"
+      }
+    },
+    "sensor": {
+      "next_alarm": {
+        "name": "Next alarm"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "disabled": "Disabled",
+          "idle": "Idle",
+          "scheduled": "Scheduled",
+          "sunrise": "Sunrise",
+          "ringing": "Ringing",
+          "snoozed": "Snoozed"
+        }
+      }
+    },
+    "switch": {
+      "enabled": {
+        "name": "Enabled"
+      },
+      "skip_next": {
+        "name": "Skip next"
+      }
+    }
+  },
+  "services": {
+    "snooze": {
+      "name": "Snooze",
+      "description": "Snoozes a ringing alarm, or all ringing alarms.",
+      "fields": {
+        "alarm_id": {
+          "name": "Alarm ID",
+          "description": "ID of the alarm. Leave empty (and no entity) to act on all running alarms."
+        },
+        "entity_id": {
+          "name": "Alarm entity",
+          "description": "Any DayBreak entity of the alarm, alternatively to the alarm ID."
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "Snooze duration. Defaults to the alarm's snooze setting."
+        }
+      }
+    },
+    "stop": {
+      "name": "Stop",
+      "description": "Stops a running alarm, or all running alarms.",
+      "fields": {
+        "alarm_id": {
+          "name": "Alarm ID",
+          "description": "ID of the alarm. Leave empty (and no entity) to act on all running alarms."
+        },
+        "entity_id": {
+          "name": "Alarm entity",
+          "description": "Any DayBreak entity of the alarm, alternatively to the alarm ID."
+        }
+      }
+    },
+    "skip_next": {
+      "name": "Skip next",
+      "description": "Skips the next occurrence of an alarm.",
+      "fields": {
+        "alarm_id": {
+          "name": "Alarm ID",
+          "description": "ID of the alarm. Leave empty (and no entity) to act on all running alarms."
+        },
+        "entity_id": {
+          "name": "Alarm entity",
+          "description": "Any DayBreak entity of the alarm, alternatively to the alarm ID."
+        }
+      }
+    },
+    "cancel_skip": {
+      "name": "Cancel skip",
+      "description": "Restores a skipped occurrence.",
+      "fields": {
+        "alarm_id": {
+          "name": "Alarm ID",
+          "description": "ID of the alarm. Leave empty (and no entity) to act on all running alarms."
+        },
+        "entity_id": {
+          "name": "Alarm entity",
+          "description": "Any DayBreak entity of the alarm, alternatively to the alarm ID."
+        }
+      }
+    },
+    "test": {
+      "name": "Test",
+      "description": "Runs the alarm now with a shortened sunrise.",
+      "fields": {
+        "alarm_id": {
+          "name": "Alarm ID",
+          "description": "ID of the alarm. Leave empty (and no entity) to act on all running alarms."
+        },
+        "entity_id": {
+          "name": "Alarm entity",
+          "description": "Any DayBreak entity of the alarm, alternatively to the alarm ID."
+        },
+        "duration": {
+          "name": "Sunrise duration",
+          "description": "Length of the compressed test sunrise in seconds."
+        }
+      }
+    }
+  }
+}

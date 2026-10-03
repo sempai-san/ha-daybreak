@@ -1,0 +1,14 @@
+{
+  "domain": "daybreak",
+  "name": "DayBreak",
+  "codeowners": ["@sempai-san"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/sempai-san/hacs_daybreak",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/sempai-san/hacs_daybreak/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}
