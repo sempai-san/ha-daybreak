@@ -19,7 +19,10 @@ export interface HomeAssistant {
   states: Record<string, HassEntity>;
   entities?: Record<string, { entity_id: string; device_id?: string | null; area_id?: string | null; platform?: string }>;
   devices?: Record<string, { id: string; area_id?: string | null; name?: string | null; name_by_user?: string | null }>;
-  areas?: Record<string, { area_id: string; name: string }>;
+  // entity registry display entries also carry these
+
+  areas?: Record<string, { area_id: string; name: string; floor_id?: string | null; icon?: string | null }>;
+  floors?: Record<string, { floor_id: string; name: string; level?: number | null; icon?: string | null }>;
   user?: { is_admin: boolean; name?: string };
   callWS<T>(msg: Record<string, unknown>): Promise<T>;
   callService(domain: string, service: string, data?: Record<string, unknown>): Promise<unknown>;
