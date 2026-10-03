@@ -9,10 +9,15 @@ import voluptuous as vol
 
 from .const import (
     ATTR_ALARM_ID,
+    ATTR_DATE,
     ATTR_DURATION,
+    ATTR_LIGHT_LEAD,
     ATTR_MINUTES,
+    ATTR_TIME,
     DOMAIN,
     SERVICE_CANCEL_SKIP,
+    SERVICE_CLEAR_ONCE,
+    SERVICE_SET_ONCE,
     SERVICE_SKIP_NEXT,
     SERVICE_SNOOZE,
     SERVICE_STOP,
@@ -37,6 +42,19 @@ TEST_SCHEMA = vol.All(
             vol.Optional(ATTR_DURATION, default=60): vol.All(
                 vol.Coerce(int), vol.Range(min=10, max=1800)
             ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_ALARM_ID, ATTR_ENTITY_ID),
+)
+
+
+SET_ONCE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            **_TARGET,
+            vol.Required(ATTR_DATE): cv.date,
+            vol.Required(ATTR_TIME): cv.time,
+            vol.Optional(ATTR_LIGHT_LEAD): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
         }
     ),
     cv.has_at_least_one_key(ATTR_ALARM_ID, ATTR_ENTITY_ID),
@@ -69,8 +87,21 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def test(call: ServiceCall) -> None:
         await get_manager(hass).async_test(_alarm_id(hass, call), call.data[ATTR_DURATION])
 
+    async def set_once(call: ServiceCall) -> None:
+        await get_manager(hass).async_set_once(
+            _alarm_id(hass, call),
+            call.data[ATTR_DATE].isoformat(),
+            call.data[ATTR_TIME].strftime("%H:%M"),
+            call.data.get(ATTR_LIGHT_LEAD),
+        )
+
+    async def clear_once(call: ServiceCall) -> None:
+        await get_manager(hass).async_clear_once(_alarm_id(hass, call))
+
     hass.services.async_register(DOMAIN, SERVICE_SNOOZE, snooze, SNOOZE_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_STOP, stop, STOP_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_SKIP_NEXT, skip_next, ALARM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_CANCEL_SKIP, cancel_skip, ALARM_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_TEST, test, TEST_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_SET_ONCE, set_once, SET_ONCE_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_CLEAR_ONCE, clear_once, ALARM_SCHEMA)

@@ -45,9 +45,11 @@ class NextAlarmSensor(DaybreakAlarmEntity, SensorEntity):
         info = self.manager.runtime_info(self.alarm_id)
         return {
             "alarm_id": self.alarm_id,
-            "time": self.alarm["time"],
-            "days": self.alarm["days"],
-            "sunrise_start": info["next_sunrise"],
+            "kind": self.alarm["kind"],
+            "base_time": info["next_base"],
+            "shift_minutes": info["shift"],
+            "light_start": info["next_light_start"],
+            "owners": self.alarm["owners"],
         }
 
 
@@ -68,7 +70,10 @@ class StatusSensor(DaybreakAlarmEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         info = self.manager.runtime_info(self.alarm_id)
-        return {key: info[key] for key in ("snooze_until", "ring_started", "test")}
+        return {
+            key: info[key]
+            for key in ("snooze_until", "ring_started", "snoozes", "snooze_end", "test")
+        }
 
 
 class NextAlarmOverallSensor(DaybreakHubEntity, SensorEntity):

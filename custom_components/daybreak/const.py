@@ -8,7 +8,7 @@ DOMAIN: Final = "daybreak"
 NAME: Final = "DayBreak"
 
 STORAGE_KEY: Final = DOMAIN
-STORAGE_VERSION: Final = 1
+STORAGE_VERSION: Final = 2
 
 FRONTEND_URL_BASE: Final = f"/{DOMAIN}_static"
 FRONTEND_SCRIPT: Final = "daybreak.js"
@@ -33,6 +33,7 @@ EVENT_ALARM_STOPPED: Final = f"{DOMAIN}_alarm_stopped"
 EVENT_ALARM_SKIPPED: Final = f"{DOMAIN}_alarm_skipped"
 EVENT_ALARM_FINISHED: Final = f"{DOMAIN}_alarm_finished"
 EVENT_LAST_CALL: Final = f"{DOMAIN}_last_call"
+EVENT_ALARM_SHIFTED: Final = f"{DOMAIN}_alarm_shifted"
 
 # Runtime states of a single alarm.
 STATE_DISABLED: Final = "disabled"
@@ -61,26 +62,17 @@ END_DISABLED: Final = "disabled"
 END_AWAY: Final = "away"
 END_LAST_CALL_TIMEOUT: Final = "last_call_timeout"
 
-CURVE_LINEAR: Final = "linear"
-CURVE_SMOOTH: Final = "smooth"
-CURVE_CUSTOM: Final = "custom"
-CURVES: Final = [CURVE_LINEAR, CURVE_SMOOTH, CURVE_CUSTOM]
-
-SNOOZE_LIGHT_KEEP: Final = "keep"
-SNOOZE_LIGHT_DIM: Final = "dim"
-SNOOZE_LIGHT_OFF: Final = "off"
-SNOOZE_LIGHT_MODES: Final = [SNOOZE_LIGHT_KEEP, SNOOZE_LIGHT_DIM, SNOOZE_LIGHT_OFF]
-
-AFTER_STOP_KEEP: Final = "keep"
-AFTER_STOP_OFF: Final = "off"
-AFTER_STOP_MODES: Final = [AFTER_STOP_KEEP, AFTER_STOP_OFF]
-
 SERVICE_SNOOZE: Final = "snooze"
 SERVICE_STOP: Final = "stop"
 SERVICE_SKIP_NEXT: Final = "skip_next"
 SERVICE_CANCEL_SKIP: Final = "cancel_skip"
 SERVICE_TEST: Final = "test"
+SERVICE_SET_ONCE: Final = "set_once"
+SERVICE_CLEAR_ONCE: Final = "clear_once"
 
 ATTR_ALARM_ID: Final = "alarm_id"
 ATTR_MINUTES: Final = "minutes"
 ATTR_DURATION: Final = "duration"
+ATTR_DATE: Final = "date"
+ATTR_TIME: Final = "time"
+ATTR_LIGHT_LEAD: Final = "light_lead"

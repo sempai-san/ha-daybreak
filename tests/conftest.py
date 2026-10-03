@@ -43,3 +43,17 @@ async def manager(hass: HomeAssistant, mock_frontend):
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry.runtime_data
+
+
+async def advance(hass: HomeAssistant, freezer, delta, step: float = 5) -> None:
+    """Move time forward in small steps so every timer fires."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    end = dt_util.utcnow() + delta
+    while dt_util.utcnow() < end:
+        freezer.tick(timedelta(seconds=step))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
