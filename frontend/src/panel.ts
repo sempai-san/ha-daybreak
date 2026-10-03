@@ -6,6 +6,7 @@ import {
   createAlarm,
   deleteAlarm,
   saveProfile,
+  saveSettings,
   setOnce,
   subscribeAlarms,
   updateAlarm,
@@ -38,7 +39,6 @@ import "./views/profiles-view";
 import "./views/last-call-view";
 import "./views/settings-view";
 
-const MODE_KEY = "daybreak-editor-mode";
 type Tab = "alarms" | "profiles" | "last_call" | "settings";
 const KINDS: Kind[] = ["wake", "sleep", "kids"];
 const KIND_GRADIENT: Record<Kind, string> = {
@@ -47,16 +47,6 @@ const KIND_GRADIENT: Record<Kind, string> = {
   kids: "linear-gradient(90deg,#e0402a 0 50%,#3cc864 50% 100%)",
 };
 
-function storedMode(): EditorMode | undefined {
-  try {
-    const value = localStorage.getItem(MODE_KEY);
-    if (value === "simple" || value === "normal" || value === "expert") return value;
-  } catch {
-    /* storage unavailable */
-  }
-  return undefined;
-}
-
 /** Sidebar panel: overview, alarm editor, profiles and settings. */
 export class DaybreakPanel extends LitElement {
   @property({ attribute: false }) hass?: HomeAssistant;
@@ -64,7 +54,7 @@ export class DaybreakPanel extends LitElement {
   @state() private _snapshot?: Snapshot;
   @state() private _tab: Tab = "alarms";
   @state() private _editing?: { alarm: AlarmConfig; id?: string };
-  @state() private _mode?: EditorMode = storedMode();
+  @state() private _mode?: EditorMode;
   @state() private _saving = false;
   @state() private _now = Date.now();
   @state() private _ready = false;
@@ -339,7 +329,10 @@ export class DaybreakPanel extends LitElement {
 
   private _subscribe() {
     if (this._unsub || !this.hass || !this.isConnected) return;
-    this._unsub = subscribeAlarms(this.hass, (snapshot) => (this._snapshot = localizeSnapshot(this.hass, snapshot)));
+    this._unsub = subscribeAlarms(this.hass, (snapshot) => {
+      this._snapshot = localizeSnapshot(this.hass, snapshot);
+      this._mode = undefined;
+    });
   }
 
   private get _editorMode(): EditorMode {
@@ -413,12 +406,9 @@ export class DaybreakPanel extends LitElement {
   }
 
   private _setMode(ev: CustomEvent) {
+    // One place for the mode: the editor switch also changes the setting.
     this._mode = ev.detail.mode;
-    try {
-      localStorage.setItem(MODE_KEY, ev.detail.mode);
-    } catch {
-      /* ignore */
-    }
+    if (this.hass) saveSettings(this.hass, { default_mode: ev.detail.mode }).catch((err) => this._error(err));
   }
 
   // -------------------------------------------------------------- render

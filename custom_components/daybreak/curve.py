@@ -8,10 +8,13 @@ import math
 from typing import Any
 
 PRESET_POINTS: dict[str, list[tuple[float, float]]] = {
-    "natural": [(0.0, 0.0), (0.55, 0.17), (0.8, 0.5), (1.0, 1.0)],
-    "gentle": [(0.0, 0.0), (0.5, 0.3), (1.0, 1.0)],
-    "linear": [(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)],
-    "fast": [(0.0, 0.0), (0.3, 0.6), (1.0, 1.0)],
+    # Long dark phase, bright only near the end (like a real sunrise).
+    "natural": [(0.0, 0.0), (0.4, 0.04), (0.7, 0.2), (0.9, 0.6), (1.0, 1.0)],
+    # Soft S-curve: gentle start and gentle finish.
+    "gentle": [(0.0, 0.0), (0.25, 0.07), (0.5, 0.4), (0.75, 0.82), (1.0, 1.0)],
+    "linear": [(0.0, 0.0), (1.0, 1.0)],
+    # Bright early, then levels off.
+    "fast": [(0.0, 0.0), (0.2, 0.5), (0.5, 0.85), (1.0, 1.0)],
 }
 
 COLOR_PRESETS: dict[str, list[str]] = {
@@ -60,15 +63,42 @@ def curve_points(settings: dict[str, Any], channel: str) -> list[tuple[float, fl
     return [(p["t"], p["v"]) for p in settings[key]]
 
 
+def _slopes(points: list[tuple[float, float]]) -> list[float]:
+    """Fritsch-Carlson tangents: smooth through all points, never overshoots."""
+    n = len(points)
+    deltas = [
+        (points[i + 1][1] - points[i][1]) / ((points[i + 1][0] - points[i][0]) or 1e-9)
+        for i in range(n - 1)
+    ]
+    if n == 2:
+        return [deltas[0], deltas[0]]
+    slopes = [deltas[0]]
+    for i in range(1, n - 1):
+        d0, d1 = deltas[i - 1], deltas[i]
+        slopes.append(0.0 if d0 * d1 <= 0 else 2 / (1 / d0 + 1 / d1))
+    slopes.append(deltas[-1])
+    return slopes
+
+
 def curve_value(points: list[tuple[float, float]], x: float) -> float:
-    """Piecewise smooth (smoothstep) interpolation; monotone between points."""
+    """Monotone cubic interpolation through the curve points."""
     x = min(1.0, max(0.0, x))
     if x <= points[0][0]:
         return points[0][1]
-    for (t0, v0), (t1, v1) in pairwise(points):
+    if x >= points[-1][0]:
+        return points[-1][1]
+    slopes = _slopes(points)
+    for i in range(len(points) - 1):
+        (t0, v0), (t1, v1) = points[i], points[i + 1]
         if x <= t1:
-            r = 0.0 if t1 == t0 else (x - t0) / (t1 - t0)
-            return v0 + (v1 - v0) * (r * r * (3 - 2 * r))
+            h = (t1 - t0) or 1e-9
+            r = (x - t0) / h
+            h00 = 2 * r**3 - 3 * r**2 + 1
+            h10 = r**3 - 2 * r**2 + r
+            h01 = -2 * r**3 + 3 * r**2
+            h11 = r**3 - r**2
+            value = h00 * v0 + h10 * h * slopes[i] + h01 * v1 + h11 * h * slopes[i + 1]
+            return min(1.0, max(0.0, value))
     return points[-1][1]
 
 

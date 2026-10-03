@@ -11,6 +11,7 @@ import {
 import { errorText, t } from "../i18n";
 import { shared } from "../styles";
 import { clamp, fireEvent, friendlyName, lightsOf } from "../util";
+import "../components/entity-picker";
 
 /** "Last call" profiles: what happens when nobody reacts. */
 export class DbLastCallView extends LitElement {
@@ -231,8 +232,11 @@ export class DbLastCallView extends LitElement {
       </div>
       <div class="lbl">${t(hass, "lc_lights")}</div>
       <div class="muted">${t(hass, "lc_lights_hint")}</div>
-      <ha-selector .required=${false} .hass=${hass} .selector=${{ target: { entity: { domain: "light" } } }} .value=${draft.targets}
-        @value-changed=${(ev: CustomEvent) => set({ targets: ev.detail.value ?? {} })}></ha-selector>
+      <db-entity-picker .hass=${hass} .domains=${["light"]} multiple areaPick .value=${lightsOf(hass, draft.targets)}
+        @value-changed=${(ev: CustomEvent) => {
+          ev.stopPropagation();
+          set({ targets: { entity_id: ev.detail.value ?? [] } });
+        }}></db-entity-picker>
       <div class="lbl">${t(hass, "lc_actions")}</div>
       <div class="muted">${t(hass, "lc_actions_hint")}</div>
       <ha-selector .required=${false} .hass=${hass} .selector=${{ action: {} }} .value=${draft.actions}

@@ -17,6 +17,7 @@ import {
 import { errorText, t, type StringKey } from "../i18n";
 import { shared } from "../styles";
 import { clamp, fireEvent, friendlyName } from "../util";
+import "../components/entity-picker";
 
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
 
@@ -83,9 +84,19 @@ export class DbSettingsView extends LitElement {
     }
   }
 
-  private _sel(selector: Record<string, unknown>, value: unknown, change: (v: any) => void, label: string) {
-    return html`<ha-selector .hass=${this.hass} .selector=${selector} .value=${value} .label=${label} .required=${false}
-      @value-changed=${(ev: CustomEvent) => change(ev.detail.value)}></ha-selector>`;
+  private _sel(
+    domains: string[],
+    value: string | string[] | null,
+    change: (v: any) => void,
+    label: string,
+    opts: { multiple?: boolean; deviceClass?: string } = {},
+  ) {
+    return html`<db-entity-picker .hass=${this.hass} .domains=${domains} .value=${value} .label=${label}
+      .multiple=${!!opts.multiple} .deviceClass=${opts.deviceClass}
+      @value-changed=${(ev: CustomEvent) => {
+        ev.stopPropagation();
+        change(ev.detail.value);
+      }}></db-entity-picker>`;
   }
 
   private _presets() {
@@ -191,14 +202,15 @@ export class DbSettingsView extends LitElement {
             )}
           </div>
         </div>
-        ${this._sel({ entity: { filter: [{ domain: "binary_sensor", integration: "workday" }] } }, s.holiday_entity,
+        <div class="muted">${t(hass, "default_mode_hint")}</div>
+        ${this._sel(["binary_sensor"], s.holiday_entity,
           (v) => this._set({ holiday_entity: v || null }), t(hass, "holiday_entity"))}
         <div class="muted">
           ${this.snapshot.holiday_entity
             ? t(hass, "holiday_used", { entity: friendlyName(hass, this.snapshot.holiday_entity) })
             : t(hass, "holidays_none")}
         </div>
-        ${this._sel({ entity: { filter: [{ domain: "notify" }] } }, s.notify, (v) => this._set({ notify: v || null }), t(hass, "notify_default"))}
+        ${this._sel(["notify"], s.notify, (v) => this._set({ notify: v || null }), t(hass, "notify_default"))}
         <div class="muted">${t(hass, "notify_hint")}</div>
       </section>
 
@@ -210,7 +222,7 @@ export class DbSettingsView extends LitElement {
       <section class="card">
         <h2>${t(hass, "settings_weather")}</h2>
         <div class="muted">${t(hass, "settings_weather_hint")}</div>
-        ${this._sel({ entity: { filter: [{ domain: "weather" }] } }, s.weather_entity, (v) => this._set({ weather_entity: v || null }), t(hass, "weather_entity"))}
+        ${this._sel(["weather"], s.weather_entity, (v) => this._set({ weather_entity: v || null }), t(hass, "weather_entity"))}
         <div class="grid">
           ${WEATHER.map(
             (k) => html`<label class="cell"><span class="grow">${t(hass, `weather_${k}` as StringKey)}</span>
@@ -226,10 +238,10 @@ export class DbSettingsView extends LitElement {
             <input class="inp num" type="number" min="0" max="240" .value=${String(s.cold_minutes)}
               @change=${(ev: Event) => this._set({ cold_minutes: clamp(Number((ev.target as HTMLInputElement).value), 0, 240) })} /><span>min</span></label>
         </div>
-        ${this._sel({ entity: { filter: [{ domain: "sensor", device_class: "temperature" }] } }, s.temperature_entity,
-          (v) => this._set({ temperature_entity: v || null }), t(hass, "temperature_entity"))}
-        ${this._sel({ entity: { multiple: true, filter: [{ domain: ["sensor", "binary_sensor"] }] } }, s.warning_entities,
-          (v) => this._set({ warning_entities: v ?? [] }), t(hass, "warning_entities"))}
+        ${this._sel(["sensor"], s.temperature_entity,
+          (v) => this._set({ temperature_entity: v || null }), t(hass, "temperature_entity"), { deviceClass: "temperature" })}
+        ${this._sel(["sensor", "binary_sensor"], s.warning_entities,
+          (v) => this._set({ warning_entities: v ?? [] }), t(hass, "warning_entities"), { multiple: true })}
         <label class="row"><span>${t(hass, "warning_level")}</span>
           <select class="inp" @change=${(ev: Event) => this._set({ warning_level: Number((ev.target as HTMLSelectElement).value) })}>
             ${[1, 2, 3, 4].map((n) => html`<option value=${n} ?selected=${s.warning_level === n}>${t(hass, `warning_${n}` as StringKey)}</option>`)}
