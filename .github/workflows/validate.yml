@@ -20,6 +20,9 @@ jobs:
 
   hacs:
     name: HACS
+    # HACS validates the repository's default branch via the GitHub API,
+    # so results on other branches are meaningless.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: hacs/action@main
