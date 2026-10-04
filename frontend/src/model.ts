@@ -1,5 +1,15 @@
 // Defaults and light maths. Mirrors models.py and curve.py of the backend.
-import type { AlarmConfig, AudioSource, ColorPreset, Kind, LightSettings, Point, SequenceStep } from "./api";
+import type {
+  AlarmConfig,
+  AudioSource,
+  ClimateConfig,
+  ClimateSettings,
+  ColorPreset,
+  Kind,
+  LightSettings,
+  Point,
+  SequenceStep,
+} from "./api";
 
 export const PRESET_POINTS: Record<string, [number, number][]> = {
   // Long dark phase, bright only near the end (like a real sunrise).
@@ -74,6 +84,36 @@ export function defaultSource(): AudioSource {
   return { type: "none", media_id: "", media_type: "playlist", name: "", url: "" };
 }
 
+export function defaultClimateSettings(): ClimateSettings {
+  return {
+    mode: "heat",
+    temperature: 21,
+    humidity: 50,
+    fan: 50,
+    water_temperature: 50,
+    start: "fixed",
+    lead: 30,
+    max_lead: 90,
+    after: "restore",
+    minutes: 30,
+    only_if_needed: true,
+    outdoor_below: null,
+    outdoor_above: null,
+  };
+}
+
+export function defaultClimate(): ClimateConfig {
+  return {
+    enabled: false,
+    devices: [],
+    profile: null,
+    settings: defaultClimateSettings(),
+    room_sensor: null,
+    windows: [],
+    presence: true,
+  };
+}
+
 export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
   const alarm: AlarmConfig = {
     name,
@@ -129,6 +169,7 @@ export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
       restore_volume: true,
     },
     push: { enabled: true, owners: true, targets: [], critical_last_call: false },
+    climate: defaultClimate(),
   };
   if (kind === "sleep") {
     alarm.wake.time = "22:30";

@@ -51,6 +51,14 @@ from homeassistant.util import dt as dt_util
 
 from . import astro, push
 from .audio import AlarmAudio
+from .climate_control import (
+    MAX_SAMPLES,
+    ClimateConfig,
+    ClimateRun,
+    estimate_lead,
+    outdoor_allows,
+    room_temperature,
+)
 from .const import (
     ACTIVE_STATES,
     DOMAIN,
@@ -84,11 +92,13 @@ from .const import (
 from .curve import Capabilities, LightCommand, command_at, to_brightness_255
 from .devices import find_device
 from .models import (
+    BUILTIN_CLIMATE_PROFILES,
     BUILTIN_LAST_CALL_PROFILES,
     BUILTIN_LIGHT_PROFILES,
     merge_alarm,
     migrate_store_v1,
     validate_alarm,
+    validate_climate_profile,
     validate_last_call_profile,
     validate_light_profile,
     validate_settings,
@@ -284,6 +294,20 @@ class AlarmRuntime:
     timer: CALLBACK_TYPE | None = None
     run: AlarmRun | None = None
     off_later: CALLBACK_TYPE | None = None
+    # Climate for the next alarm: planned start, its timer and the running climate.
+    climate_at: datetime | None = None
+    climate_timer: CALLBACK_TYPE | None = None
+    climate: ClimateRun | None = None
+    # Climate runs of past alarms still waiting to restore/switch off.
+    climate_after: list[ClimateRun] = field(default_factory=list)
+
+    def cancel_climate(self) -> None:
+        if self.climate_timer:
+            self.climate_timer()
+            self.climate_timer = None
+        for item in [self.climate, *self.climate_after]:
+            if item:
+                item.cancel()
 
 
 class DaybreakManager:
@@ -296,6 +320,9 @@ class DaybreakManager:
         self.settings: dict[str, Any] = validate_settings({})
         self.light_profiles: dict[str, dict[str, Any]] = {}
         self.last_call_profiles: dict[str, dict[str, Any]] = {}
+        self.climate_profiles: dict[str, dict[str, Any]] = {}
+        # Learned heat-up/cool-down speed per alarm: [{per_degree, outdoor}].
+        self._climate_learn: dict[str, list[dict[str, Any]]] = {}
         # Base alarm time (ISO, UTC) up to which an alarm has been handled. Prevents a
         # stopped sunrise from starting again before its alarm time is reached.
         self._handled: dict[str, str] = {}
@@ -314,6 +341,7 @@ class DaybreakManager:
         for key, validator, target in (
             ("light_profiles", validate_light_profile, self.light_profiles),
             ("last_call_profiles", validate_last_call_profile, self.last_call_profiles),
+            ("climate_profiles", validate_climate_profile, self.climate_profiles),
         ):
             for raw in data.get(key, []):
                 try:
@@ -330,6 +358,7 @@ class DaybreakManager:
                 continue
             self.alarms[alarm["id"]] = alarm
         self._handled = dict(data.get("handled", {}))
+        self._climate_learn = dict(data.get("climate_learn", {}))
         # Create every runtime first: listeners of the dispatches below read all alarms.
         self._runtime = {alarm_id: AlarmRuntime() for alarm_id in self.alarms}
         for alarm_id in self.alarms:
@@ -363,6 +392,7 @@ class DaybreakManager:
                 runtime.off_later()
             if runtime.run:
                 runtime.run.cancel_all()
+            runtime.cancel_climate()
 
     @callback
     def _on_core_config_update(self, _event: Event) -> None:
@@ -384,7 +414,9 @@ class DaybreakManager:
             "settings": self.settings,
             "light_profiles": list(self.light_profiles.values()),
             "last_call_profiles": list(self.last_call_profiles.values()),
+            "climate_profiles": list(self.climate_profiles.values()),
             "handled": self._handled,
+            "climate_learn": self._climate_learn,
         }
 
     # ------------------------------------------------------------------- CRUD
@@ -439,6 +471,10 @@ class DaybreakManager:
             runtime.off_later()
         if runtime.run:
             runtime.run.cancel_all()
+        if runtime.climate:
+            self.hass.async_create_task(runtime.climate.async_end(), eager_start=False)
+        runtime.cancel_climate()
+        self._climate_learn.pop(alarm_id, None)
         del self.alarms[alarm_id]
         self._handled.pop(alarm_id, None)
         self._save()
@@ -492,6 +528,30 @@ class DaybreakManager:
     def all_last_call_profiles(self) -> list[dict[str, Any]]:
         return [*deepcopy(BUILTIN_LAST_CALL_PROFILES), *self.last_call_profiles.values()]
 
+    def all_climate_profiles(self) -> list[dict[str, Any]]:
+        return [*deepcopy(BUILTIN_CLIMATE_PROFILES), *self.climate_profiles.values()]
+
+    def climate_profile(self, profile_id: str | None) -> dict[str, Any] | None:
+        if not profile_id:
+            return None
+        if profile_id in self.climate_profiles:
+            return self.climate_profiles[profile_id]
+        return next((p for p in BUILTIN_CLIMATE_PROFILES if p["id"] == profile_id), None)
+
+    def _profile_kind(
+        self, kind: str
+    ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], Any]:
+        """Store, built-ins and validator of a profile kind."""
+        if kind == "climate":
+            return self.climate_profiles, BUILTIN_CLIMATE_PROFILES, validate_climate_profile
+        if kind == "last_call":
+            return (
+                self.last_call_profiles,
+                BUILTIN_LAST_CALL_PROFILES,
+                validate_last_call_profile,
+            )
+        return self.light_profiles, BUILTIN_LIGHT_PROFILES, validate_light_profile
+
     def light_profile(self, profile_id: str | None) -> dict[str, Any] | None:
         if not profile_id:
             return None
@@ -514,6 +574,8 @@ class DaybreakManager:
         for alarm_id, alarm in self.alarms.items():
             if kind == "last_call":
                 used = alarm["last_call"]["profile"] == profile_id
+            elif kind == "climate":
+                used = alarm["climate"]["profile"] == profile_id
             else:
                 light = alarm["light"]
                 used = light["profile"] == profile_id or any(
@@ -526,9 +588,8 @@ class DaybreakManager:
     def _check_profile_editable(
         self, kind: str, profile_id: str, *, confirm: bool, deleting: bool = False
     ) -> None:
-        store = self.light_profiles if kind == "light" else self.last_call_profiles
+        store, builtin, _ = self._profile_kind(kind)
         if profile_id not in store:
-            builtin = BUILTIN_LIGHT_PROFILES if kind == "light" else BUILTIN_LAST_CALL_PROFILES
             if any(p["id"] == profile_id for p in builtin):
                 raise DaybreakError("profile_builtin", "Built-in profiles cannot be changed")
             raise DaybreakError("unknown_profile", f"Unknown profile {profile_id}")
@@ -551,8 +612,7 @@ class DaybreakManager:
         self, kind: str, data: dict[str, Any], *, confirm: bool = False
     ) -> dict[str, Any]:
         """Create (no id) or update a light or last call profile."""
-        store = self.light_profiles if kind == "light" else self.last_call_profiles
-        validator = validate_light_profile if kind == "light" else validate_last_call_profile
+        store, _, validator = self._profile_kind(kind)
         profile_id = data.get("id")
         if profile_id:
             self._check_profile_editable(kind, profile_id, confirm=confirm)
@@ -567,7 +627,7 @@ class DaybreakManager:
 
     async def async_delete_profile(self, kind: str, profile_id: str) -> None:
         self._check_profile_editable(kind, profile_id, confirm=True, deleting=True)
-        store = self.light_profiles if kind == "light" else self.last_call_profiles
+        store, _, _ = self._profile_kind(kind)
         del store[profile_id]
         if self.settings["default_last_call"] == profile_id:
             self.settings["default_last_call"] = "all_on"
@@ -627,6 +687,9 @@ class DaybreakManager:
             "snoozes": run.snoozes if run else 0,
             "snooze_end": iso(run.snooze_end) if run else None,
             "last_call_started": iso(run.last_call_started) if run else None,
+            "climate_at": iso(runtime.climate_at),
+            "climate_active": bool(runtime.climate and runtime.climate.active),
+            "climate_samples": len(self._climate_learn.get(alarm_id, [])),
         }
 
     def as_dict(self, alarm_id: str) -> dict[str, Any]:
@@ -753,6 +816,7 @@ class DaybreakManager:
                     runtime.timer = async_track_point_in_utc_time(
                         self.hass, self._job(self._async_trigger, alarm_id, base), trigger_at
                     )
+        self._schedule_climate(alarm_id)
         self._notify(alarm_id)
 
     async def _async_trigger(
@@ -779,6 +843,7 @@ class DaybreakManager:
                 EVENT_ALARM_SKIPPED, alarm_id, {"skipped": base.isoformat(), "reason": "away"}
             )
             self._async_send_message(alarm_id, "skipped")
+            self._climate_finish(alarm_id, now=True)
             if is_one_time(alarm):
                 alarm["enabled"] = False
                 alarm["repeat"]["date"] = None
@@ -789,6 +854,152 @@ class DaybreakManager:
         light_start = alarm_time - timedelta(minutes=self._lead(alarm, base))
         await self._async_start_run(
             alarm_id, base, alarm_time, light_start, test=False, shortened=shortened
+        )
+
+    # ---------------------------------------------------------------- climate
+
+    def _climate_config(self, alarm: dict[str, Any]) -> ClimateConfig | None:
+        climate = alarm["climate"]
+        if alarm["kind"] != "wake" or not climate["enabled"] or not climate["devices"]:
+            return None
+        profile = self.climate_profile(climate["profile"])
+        return ClimateConfig(
+            devices=climate["devices"],
+            settings=profile["settings"] if profile else climate["settings"],
+            room_sensor=climate["room_sensor"],
+            windows=climate["windows"],
+        )
+
+    @callback
+    def _schedule_climate(self, alarm_id: str) -> None:
+        """Plan the climate start for the next alarm (or end a stale one)."""
+        runtime = self._runtime[alarm_id]
+        if runtime.climate_timer:
+            runtime.climate_timer()
+            runtime.climate_timer = None
+        when = runtime.next_alarm
+        if runtime.climate and not runtime.run and runtime.climate.base != runtime.base_time:
+            # The alarm it was prepared for will not ring (skipped, disabled, other
+            # time). A shift only moves the same alarm, so compare the base time.
+            self._climate_finish(alarm_id, now=True)
+        config = self._climate_config(self.alarms[alarm_id])
+        if not config or not when or runtime.climate:
+            runtime.climate_at = None
+            return
+        s = config.settings
+        if s["start"] == "fixed":
+            runtime.climate_at = when - timedelta(minutes=s["lead"])
+            first = runtime.climate_at
+        else:
+            first = when - timedelta(minutes=s["max_lead"])
+            if not runtime.climate_at or runtime.climate_at < first:
+                runtime.climate_at = first
+        now = dt_util.utcnow()
+        if when <= now:
+            return
+        runtime.climate_timer = async_track_point_in_utc_time(
+            self.hass, self._job(self._async_climate_check, alarm_id, when), max(now, first)
+        )
+
+    async def _async_climate_outdoor(self, when: datetime, now: datetime) -> float | None:
+        """Outdoor temperature at the alarm: the forecast while far ahead, then the live value."""
+        settings = self.settings
+        weather = settings["weather_entity"]
+        if weather and when - now > timedelta(minutes=60):
+            forecast = await self._async_forecast_at(weather, when)
+            if forecast and (value := _as_float(forecast.get("temperature"))) is not None:
+                return value
+        if (
+            (entity := settings["temperature_entity"])
+            and (state := self.hass.states.get(entity))
+            and (value := _as_float(state.state)) is not None
+        ):
+            return value
+        if weather and (state := self.hass.states.get(weather)):
+            return _as_float(state.attributes.get("temperature"))
+        return None
+
+    async def _async_climate_check(self, alarm_id: str, when: datetime) -> None:
+        """Before the alarm: check the conditions and start the climate when it is time."""
+        if alarm_id not in self.alarms:
+            return
+        runtime = self._runtime[alarm_id]
+        runtime.climate_timer = None
+        alarm = self.alarms[alarm_id]
+        config = self._climate_config(alarm)
+        now = dt_util.utcnow()
+        if not config or runtime.next_alarm != when or runtime.climate or now >= when:
+            return
+        s = config.settings
+        retry = timedelta(minutes=10)
+        outdoor = await self._async_climate_outdoor(when, now)
+        waiting = (
+            (alarm["climate"]["presence"] and not self._anyone_home(self._presence_entities(alarm)))
+            or not outdoor_allows(s, outdoor)
+            or any(
+                (state := self.hass.states.get(e)) is not None and state.state == "on"
+                for e in config.windows
+            )
+        )
+        if s["start"] == "fixed":
+            lead = s["lead"]
+        else:
+            room = room_temperature(self.hass, config)
+            lead = estimate_lead(s, self._climate_learn.get(alarm_id, []), room, outdoor)
+        start_at = when - timedelta(minutes=lead)
+        runtime.climate_at = start_at
+        self._notify(alarm_id)
+        if waiting or now < start_at - timedelta(seconds=30):
+            # Not yet (or conditions not met): look again later; a learned
+            # start is re-estimated with fresh values every time.
+            if waiting:
+                again = now + retry
+            elif s["start"] == "fixed":
+                again = start_at
+            else:
+                again = min(start_at, now + retry)
+            if again < when:
+                runtime.climate_timer = async_track_point_in_utc_time(
+                    self.hass, self._job(self._async_climate_check, alarm_id, when), again
+                )
+            return
+        _LOGGER.debug("DayBreak: starting climate for %s (%s min ahead)", alarm["name"], lead)
+        run = ClimateRun(
+            self.hass,
+            config,
+            when,
+            outdoor=outdoor,
+            on_learned=partial(self._climate_learned, alarm_id),
+        )
+        run.base = runtime.base_time
+        runtime.climate = run
+        await run.async_start()
+        self._notify(alarm_id)
+
+    @callback
+    def _climate_learned(self, alarm_id: str, sample: dict[str, Any]) -> None:
+        if alarm_id not in self.alarms:
+            return
+        samples = self._climate_learn.setdefault(alarm_id, [])
+        samples.append(sample)
+        del samples[:-MAX_SAMPLES]
+        self._save()
+
+    @callback
+    def _climate_finish(self, alarm_id: str, *, now: bool = False) -> None:
+        """The alarm ended (or will not ring): run the climate's after behaviour."""
+        runtime = self._runtime.get(alarm_id)
+        if not runtime or not (run := runtime.climate):
+            return
+        runtime.climate = None
+        runtime.climate_after = [r for r in runtime.climate_after if not r.finished]
+        runtime.climate_after.append(run)
+        alarm = self.alarms.get(alarm_id)
+        entities = self._presence_entities(alarm) if alarm else []
+        run.finish(
+            anyone_home=lambda: self._anyone_home(entities),
+            presence_entities=entities,
+            now=now,
         )
 
     # ----------------------------------------------------------------- shifts
@@ -1669,6 +1880,8 @@ class DaybreakManager:
         alarm = self.alarms[alarm_id]
         if run.audio:
             self.hass.async_create_task(run.audio.async_stop(), eager_start=False)
+        if not run.test:
+            self._climate_finish(alarm_id)
         if run.ring_started or run.last_call_started:
             self.hass.async_create_task(push.async_clear(self.hass, alarm), eager_start=False)
         for script in run.scripts:

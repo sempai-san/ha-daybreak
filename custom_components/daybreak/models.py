@@ -375,6 +375,61 @@ PUSH_SCHEMA = vol.Schema(
     }
 )
 
+# Climate: heating, cooling, fans, humidity and similar before waking up.
+CLIMATE_DOMAINS = ["climate", "fan", "humidifier", "water_heater", "switch", "input_boolean"]
+CLIMATE_MODES = ["heat", "cool", "heat_cool", "auto", "dry", "fan_only"]
+CLIMATE_START = ["fixed", "learned"]
+CLIMATE_AFTER = ["restore", "off", "presence"]
+TEMPERATURE = vol.All(vol.Coerce(float), vol.Range(min=5, max=35))
+
+CLIMATE_SETTINGS_SCHEMA = vol.Schema(
+    {
+        vol.Optional("mode", default="heat"): vol.In(CLIMATE_MODES),
+        vol.Optional("temperature", default=21): TEMPERATURE,
+        # Humidifiers and dehumidifiers.
+        vol.Optional("humidity", default=50): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+        # Fans (percentage).
+        vol.Optional("fan", default=50): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+        # Water heaters / boilers.
+        vol.Optional("water_temperature", default=50): vol.All(
+            vol.Coerce(float), vol.Range(min=20, max=80)
+        ),
+        # "fixed": start ``lead`` minutes before the alarm. "learned": DayBreak
+        # estimates how long the room needs, at most ``max_lead`` minutes.
+        vol.Optional("start", default="fixed"): vol.In(CLIMATE_START),
+        vol.Optional("lead", default=30): MINUTES,
+        vol.Optional("max_lead", default=90): MINUTES,
+        # After the alarm: back to the previous state, off, or keep running
+        # while somebody is home. ``minutes`` = delay (0 = right away) or,
+        # for "presence", the longest run (0 = no limit).
+        vol.Optional("after", default="restore"): vol.In(CLIMATE_AFTER),
+        vol.Optional("minutes", default=30): MINUTES,
+        # Only heat/cool when the room is not at the target yet.
+        vol.Optional("only_if_needed", default=True): cv.boolean,
+        # Only start when it is colder / warmer outside than this.
+        vol.Optional("outdoor_below", default=None): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("outdoor_above", default=None): vol.Any(None, vol.Coerce(float)),
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
+CLIMATE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=False): cv.boolean,
+        vol.Optional("devices", default=list): vol.All(cv.ensure_list, [cv.entity_id]),
+        # Climate profile id, or None for the alarm's own settings.
+        vol.Optional("profile", default=None): vol.Any(None, cv.string),
+        vol.Optional("settings", default=dict): CLIMATE_SETTINGS_SCHEMA,
+        # Room temperature; None = the first thermostat's own reading.
+        vol.Optional("room_sensor", default=None): vol.Any(None, cv.entity_id),
+        # Do not run while one of these is open.
+        vol.Optional("windows", default=list): vol.All(cv.ensure_list, [cv.entity_id]),
+        # Only when somebody is home (uses the alarm's presence entities).
+        vol.Optional("presence", default=True): cv.boolean,
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
 ONCE_SCHEMA = vol.Schema(
     {
         vol.Required("date"): _date,
@@ -406,6 +461,7 @@ ALARM_SCHEMA = vol.Schema(
         vol.Optional("fallback", default=dict): FALLBACK_SCHEMA,
         vol.Optional("audio", default=dict): AUDIO_SCHEMA,
         vol.Optional("push", default=dict): PUSH_SCHEMA,
+        vol.Optional("climate", default=dict): CLIMATE_SCHEMA,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -445,6 +501,15 @@ LAST_CALL_PROFILE_SCHEMA = vol.Schema(
     extra=vol.REMOVE_EXTRA,
 )
 
+CLIMATE_PROFILE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("id"): cv.string,
+        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=64)),
+        vol.Optional("settings", default=dict): CLIMATE_SETTINGS_SCHEMA,
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
 # Editor options that can be hidden per mode (expert always shows all).
 MODE_FEATURES = [
     "sun",
@@ -456,6 +521,7 @@ MODE_FEATURES = [
     "lamp_start",
     "audio",
     "tts",
+    "climate",
     "push",
     "actions",
     "none",
@@ -470,6 +536,7 @@ DEFAULT_MODE_HIDDEN = {
         "overrides",
         "lamp_start",
         "tts",
+        "climate",
         "actions",
         "none",
     ],
@@ -573,6 +640,27 @@ BUILTIN_LAST_CALL_PROFILES: list[dict[str, Any]] = [
 ]
 
 
+BUILTIN_CLIMATE_PROFILES: list[dict[str, Any]] = [
+    {
+        **CLIMATE_PROFILE_SCHEMA(
+            {"name": "Warm aufwachen", "settings": {"mode": "heat", "temperature": 21}}
+        ),
+        "id": "warm",
+        "builtin": True,
+    },
+    {
+        **CLIMATE_PROFILE_SCHEMA(
+            {
+                "name": "Kühl aufwachen",
+                "settings": {"mode": "cool", "temperature": 22, "after": "off"},
+            }
+        ),
+        "id": "cool",
+        "builtin": True,
+    },
+]
+
+
 # ---------------------------------------------------------------- helpers
 
 
@@ -616,6 +704,12 @@ def validate_settings(data: dict[str, Any]) -> dict[str, Any]:
 
 def validate_light_profile(data: dict[str, Any]) -> dict[str, Any]:
     profile = LIGHT_PROFILE_SCHEMA(deepcopy(data))
+    profile.setdefault("id", new_id())
+    return profile
+
+
+def validate_climate_profile(data: dict[str, Any]) -> dict[str, Any]:
+    profile = CLIMATE_PROFILE_SCHEMA(deepcopy(data))
     profile.setdefault("id", new_id())
     return profile
 

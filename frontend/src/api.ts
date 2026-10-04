@@ -216,6 +216,7 @@ export interface AlarmConfig {
   };
   audio: AudioConfig;
   push: PushConfig;
+  climate: ClimateConfig;
 }
 
 export type AlarmState =
@@ -245,6 +246,9 @@ export interface AlarmRuntime {
   snoozes: number;
   snooze_end: string | null;
   last_call_started: string | null;
+  climate_at?: string | null;
+  climate_active?: boolean;
+  climate_samples?: number;
 }
 
 export interface Alarm extends AlarmConfig {
@@ -285,6 +289,43 @@ export interface LightProfile {
   settings: LightSettings;
 }
 
+export type ClimateMode = "heat" | "cool" | "heat_cool" | "auto" | "dry" | "fan_only";
+
+export interface ClimateSettings {
+  mode: ClimateMode;
+  temperature: number;
+  humidity: number;
+  fan: number;
+  water_temperature: number;
+  start: "fixed" | "learned";
+  lead: number;
+  max_lead: number;
+  after: "restore" | "off" | "presence";
+  minutes: number;
+  only_if_needed: boolean;
+  outdoor_below: number | null;
+  outdoor_above: number | null;
+}
+
+export interface ClimateConfig {
+  enabled: boolean;
+  devices: string[];
+  profile: string | null;
+  settings: ClimateSettings;
+  room_sensor: string | null;
+  windows: string[];
+  presence: boolean;
+}
+
+export interface ClimateProfile {
+  id: string;
+  name: string;
+  settings: ClimateSettings;
+  builtin?: boolean;
+}
+
+export const CLIMATE_DOMAINS = ["climate", "fan", "humidifier", "water_heater", "switch", "input_boolean"];
+
 export interface LastCallProfile {
   id: string;
   name: string;
@@ -311,6 +352,7 @@ export const MODE_FEATURES = [
   "lamp_start",
   "audio",
   "tts",
+  "climate",
   "push",
   "actions",
   "none",
@@ -318,7 +360,7 @@ export const MODE_FEATURES = [
 ] as const;
 export type ModeFeature = (typeof MODE_FEATURES)[number];
 export const DEFAULT_MODE_HIDDEN: Record<"simple" | "normal", ModeFeature[]> = {
-  simple: ["sun", "pattern", "week_cycle", "calendar", "overrides", "lamp_start", "tts", "actions", "none"],
+  simple: ["sun", "pattern", "week_cycle", "calendar", "overrides", "lamp_start", "tts", "climate", "actions", "none"],
   normal: [],
 };
 
@@ -329,6 +371,7 @@ export interface Snapshot {
   holiday_entity: string | null;
   light_profiles: LightProfile[];
   last_call_profiles: LastCallProfile[];
+  climate_profiles?: ClimateProfile[];
   version?: string;
 }
 
@@ -375,12 +418,14 @@ export const saveSettings = (hass: HomeAssistant, changes: Partial<Settings>) =>
 
 export const saveProfile = <T>(
   hass: HomeAssistant,
-  kind: "light" | "last_call",
+  kind: ProfileKind,
   profile: Partial<T>,
   confirm = false,
 ) => hass.callWS<T>({ type: "daybreak/profile/save", kind, profile, confirm });
 
-export const deleteProfile = (hass: HomeAssistant, kind: "light" | "last_call", profileId: string) =>
+export type ProfileKind = "light" | "last_call" | "climate";
+
+export const deleteProfile = (hass: HomeAssistant, kind: ProfileKind, profileId: string) =>
   hass.callWS<void>({ type: "daybreak/profile/delete", kind, profile_id: profileId });
 
 const sunCache = new Map<string, Promise<Record<string, SunTimes>>>();

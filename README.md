@@ -4,7 +4,7 @@
 
 DayBreak wakes you up gently: your lights fade in like a sunrise before the alarm time. You manage alarms in a dedicated sidebar panel and control them from dashboard cards. Every alarm is also available to automations as entities, events and actions.
 
-> **Status:** v0.3. Sunrise, sleep and kids lights, sun-based times, automatic shifts, profiles, audio and phone notifications with Snooze/Stop work. Calendars are on the [roadmap](#roadmap).
+> **Status:** v0.4. Sunrise, sleep and kids lights, sun-based times, automatic shifts, profiles, audio, phone notifications with Snooze/Stop and climate before waking up work. Calendars are on the [roadmap](#roadmap).
 
 ![DayBreak panel](docs/images/panel.png)
 
@@ -42,6 +42,13 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - **Speaker button**: pause on the speaker (e.g. tapping a HomePod) snoozes, during the last call it stops the alarm
 - Last call profiles can bring their own audio and volume
 - **Phone notifications with Snooze and Stop** to the owners' Home Assistant apps (found automatically) and other devices; the last call can be a **critical alert** that rings even in Do Not Disturb
+
+**Climate**
+- Thermostats and air conditioners (heat, cool, heat/cool, auto, dry, fan), fans, humidifiers and dehumidifiers, water heaters and plain switches (e.g. an electric blanket)
+- Start a fixed time before the alarm, or **learned**: DayBreak measures how fast the room warms up or cools down and starts just in time (planned with the weather forecast in the evening, adjusted with the current temperature shortly before)
+- Only when needed (room not at the target yet), only when somebody is home, only when it is colder/warmer outside than a limit; pauses while a window is open
+- After waking up: back to the previous state, switch off, or keep running while somebody is home
+- **Climate profiles** shared by several alarms, or own settings per alarm
 
 **More**
 - Actions at light start, alarm, snooze and stop (any Home Assistant action)
@@ -160,8 +167,7 @@ Your alarms are converted automatically. The snooze length becomes a snooze opti
 
 ## Roadmap
 
-- **0.4**: calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
-- **0.5** (planned): climate – heating, cooling or fans before waking up (fixed lead or learned), with room/outdoor temperature, presence and open-window conditions
+- **0.5**: calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
 - **1.0**: Home Assistant brands entry and submission to the HACS default store
 
 ## Development

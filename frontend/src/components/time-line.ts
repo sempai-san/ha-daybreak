@@ -37,6 +37,8 @@ export class DbTimeLine extends LitElement {
   @property({ type: Number }) lcDuration = 10;
   /** Minutes the music starts before the alarm; -1 = no music. */
   @property({ type: Number }) audioLead = -1;
+  /** Minutes the climate starts before the alarm; -1 = no climate. */
+  @property({ type: Number }) climateLead = -1;
   @property({ type: Boolean }) fixedWake = false;
   @property({ type: Boolean }) showSnooze = true;
   @property() startLabel = "";
@@ -199,6 +201,14 @@ export class DbTimeLine extends LitElement {
         border-left: 2px dotted var(--db-muted);
         pointer-events: none;
       }
+      .clim {
+        position: absolute;
+        top: 15px;
+        height: 4px;
+        border-radius: 2px;
+        background: linear-gradient(90deg, #4aa3ff, #ff8a4c);
+        opacity: 0.85;
+      }
       .wake {
         position: absolute;
         top: 10px;
@@ -310,7 +320,7 @@ export class DbTimeLine extends LitElement {
   /** Minutes from the wake mark to each edge; the wake time stays centred. */
   private get _half() {
     if (this._frozen) return this._frozen;
-    const before = Math.max(this.lead, this.audioLead);
+    const before = Math.max(this.lead, this.audioLead, this.climateLead);
     const after = this.showSnooze ? this.snooze * this.count + (this.lastCall ? this.lcDuration : 0) : 0;
     return Math.max(15, Math.ceil((Math.max(before, after) + 5) / 15) * 15);
   }
@@ -500,6 +510,13 @@ export class DbTimeLine extends LitElement {
         ${this.audioLead >= 0 && this.showSnooze
           ? html`<span class="music" style="left:${this._pct(room - this.audioLead)}%">♪ ${formatClock(hass, toHHMM(wake - this.audioLead))}</span>
               <div class="musicline" style="left:${this._pct(room - this.audioLead)}%"></div>`
+          : nothing}
+        ${this.climateLead >= 0
+          ? html`<div class="clim" style="left:${this._pct(room - this.climateLead)}%;width:${wakePct - this._pct(room - this.climateLead)}%"
+                title=${`${t(hass, "tl_climate")} ${formatClock(hass, toHHMM(wake - this.climateLead))}`}></div>
+              <span class="music climlabel" style="left:${this._pct(room - this.climateLead)}%;top:${
+                this.audioLead >= 0 && Math.abs(this.audioLead - this.climateLead) < this._span / 8 ? "-16px" : "-2px"
+              }">🌡 ${formatClock(hass, toHHMM(wake - this.climateLead))}</span>`
           : nothing}
         <div class="wake" style="left:${wakePct}%" title=${this.wakeLabel || t(hass, "tl_wake")}></div>
         <div
