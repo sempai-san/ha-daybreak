@@ -427,6 +427,32 @@ LAST_CALL_PROFILE_SCHEMA = vol.Schema(
     extra=vol.REMOVE_EXTRA,
 )
 
+# Editor options that can be hidden per mode (expert always shows all).
+MODE_FEATURES = [
+    "sun",
+    "pattern",
+    "week_cycle",
+    "calendar",
+    "conditions",
+    "overrides",
+    "audio",
+    "tts",
+    "push",
+    "actions",
+    "none",
+    "fallback",
+]
+DEFAULT_MODE_HIDDEN = {
+    "simple": ["sun", "pattern", "week_cycle", "calendar", "overrides", "tts", "actions", "none"],
+    "normal": [],
+}
+
+
+def _features(value: Any) -> list[str]:
+    """Keep known feature keys only (unknown ones come from newer versions)."""
+    return [f for f in cv.ensure_list(value) if f in MODE_FEATURES]
+
+
 SETTINGS_SCHEMA = vol.Schema(
     {
         vol.Optional("snooze_presets", default=lambda: deepcopy(DEFAULT_SNOOZE_PRESETS)): vol.All(
@@ -449,6 +475,15 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("holiday_entity", default=None): vol.Any(None, cv.entity_id),
         vol.Optional("default_mode", default="normal"): vol.In(["simple", "normal", "expert"]),
         vol.Optional("notify", default=None): vol.Any(None, cv.string),
+        vol.Optional("mode_hidden", default=lambda: deepcopy(DEFAULT_MODE_HIDDEN)): vol.Schema(
+            {
+                vol.Optional(
+                    "simple", default=lambda: list(DEFAULT_MODE_HIDDEN["simple"])
+                ): _features,
+                vol.Optional("normal", default=list): _features,
+            },
+            extra=vol.REMOVE_EXTRA,
+        ),
     },
     extra=vol.REMOVE_EXTRA,
 )

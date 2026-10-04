@@ -16,6 +16,7 @@ from .const import (
     PANEL_COMPONENT,
     PANEL_ICON,
     PANEL_URL_PATH,
+    VERSION,
 )
 
 _DATA_STATIC = f"{DOMAIN}_static_registered"
@@ -26,7 +27,7 @@ def _script_url() -> str:
     # Cache-bust with the file's mtime so updates are picked up after restart.
     script = _FRONTEND_DIR / FRONTEND_SCRIPT
     version = int(script.stat().st_mtime) if script.exists() else 0
-    return f"{FRONTEND_URL_BASE}/{FRONTEND_SCRIPT}?v={version}"
+    return f"{FRONTEND_URL_BASE}/{FRONTEND_SCRIPT}?v={VERSION}-{version}"
 
 
 async def async_register_frontend(hass: HomeAssistant) -> None:

@@ -2,6 +2,8 @@ import { LitElement, css, html } from "lit";
 import { property, state } from "lit/decorators.js";
 import {
   createAlarm,
+  DEFAULT_MODE_HIDDEN,
+  MODE_FEATURES,
   saveProfile,
   saveSettings,
   type AlarmConfig,
@@ -9,6 +11,7 @@ import {
   type HomeAssistant,
   type LastCallProfile,
   type LightProfile,
+  type ModeFeature,
   type Settings,
   type Snapshot,
   type SnoozePreset,
@@ -68,6 +71,37 @@ export class DbSettingsView extends LitElement {
       ha-selector {
         display: block;
       }
+      .modes {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) repeat(3, 64px);
+        align-items: center;
+        gap: 2px 4px;
+      }
+      .modes .head {
+        font-size: 12px;
+        color: var(--db-muted);
+        text-align: center;
+      }
+      .modes .feat {
+        padding: 8px 0;
+        border-top: 1px solid var(--db-line);
+      }
+      .modes .box {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        align-self: stretch;
+        border-top: 1px solid var(--db-line);
+      }
+      .modes input {
+        width: 20px;
+        height: 20px;
+      }
+      @media (max-width: 480px) {
+        .modes {
+          grid-template-columns: minmax(0, 1fr) repeat(3, 48px);
+        }
+      }
     `,
   ];
 
@@ -97,6 +131,34 @@ export class DbSettingsView extends LitElement {
         ev.stopPropagation();
         change(ev.detail.value);
       }}></db-entity-picker>`;
+  }
+
+  private _modes() {
+    const hass = this.hass;
+    const hidden = { ...DEFAULT_MODE_HIDDEN, ...this.s.mode_hidden };
+    const toggle = (mode: "simple" | "normal", f: ModeFeature, show: boolean) => {
+      const list = hidden[mode].filter((x) => x !== f);
+      this._set({ mode_hidden: { ...hidden, [mode]: show ? list : [...list, f] } });
+    };
+    return html`<section class="card">
+      <h2>${t(hass, "settings_modes")}</h2>
+      <div class="muted">${t(hass, "settings_modes_hint")}</div>
+      <div class="modes">
+        <span></span>
+        ${(["simple", "normal", "expert"] as EditorMode[]).map((m) => html`<span class="head">${t(hass, `mode_${m}` as StringKey)}</span>`)}
+        ${MODE_FEATURES.map(
+          (f) => html`<div class="feat"><div>${t(hass, `feat_${f}` as StringKey)}</div>
+              <div class="muted">${t(hass, `feat_${f}_d` as StringKey)}</div></div>
+            ${(["simple", "normal"] as const).map(
+              (m) => html`<label class="box"><input type="checkbox" .checked=${!hidden[m].includes(f)}
+                aria-label=${`${t(hass, `feat_${f}` as StringKey)} – ${t(hass, `mode_${m}` as StringKey)}`}
+                @change=${(e: Event) => toggle(m, f, (e.target as HTMLInputElement).checked)} /></label>`,
+            )}
+            <span class="box"><input type="checkbox" checked disabled aria-label=${t(hass, "mode_expert")} /></span>`,
+        )}
+      </div>
+      <div><button class="btn" @click=${() => this._set({ mode_hidden: DEFAULT_MODE_HIDDEN })}>${t(hass, "settings_modes_reset")}</button></div>
+    </section>`;
   }
 
   private _presets() {
@@ -213,6 +275,7 @@ export class DbSettingsView extends LitElement {
         ${this._sel(["notify"], s.notify, (v) => this._set({ notify: v || null }), t(hass, "notify_default"))}
         <div class="muted">${t(hass, "notify_hint")}</div>
       </section>
+      ${this._modes()}
 
       <section class="card">
         <h2>${t(hass, "settings_snooze")}</h2>

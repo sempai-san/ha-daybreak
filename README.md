@@ -37,7 +37,7 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 
 **Audio and phone**
 - Music Assistant (playlist, radio, album, track – with search in the editor), a sound URL and a spoken announcement (text-to-speech template, e.g. time and temperature)
-- Music starts a few minutes before the alarm, quietly, and gets louder; it pauses while snoozing and the old volume is restored afterwards
+- Music starts a few minutes before the alarm, quietly, and gets louder; it pauses while snoozing and the old volume is restored afterwards. The volume ramp is a graphic: drag the two points or type time and volume right on them
 - **Speaker button**: pause on the speaker (e.g. tapping a HomePod) snoozes, during the last call it stops the alarm
 - Last call profiles can bring their own audio and volume
 - **Phone notifications with Snooze and Stop** to the owners' Home Assistant apps (found automatically) and other devices; the last call can be a **critical alert** that rings even in Do Not Disturb
@@ -45,7 +45,8 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 **More**
 - Actions at light start, alarm, snooze and stop (any Home Assistant action)
 - Push notifications (e.g. alarm moved, lamp not reachable) and Home Assistant notifications for problems
-- **Simple / Advanced / Expert** editor, works on phone, tablet and desktop
+- **Simple / Advanced / Expert** editor, works on phone, tablet and desktop. In the settings you choose which options Simple and Advanced show (e.g. hide audio); Expert always shows everything
+- After an update the DayBreak page reloads itself once, so no cache clearing is needed
 - Import/export of alarms and profiles
 - Dashboard cards in Home Assistant style, optionally Mushroom or Bubble look
 - English and German UI
@@ -159,6 +160,7 @@ Your alarms are converted automatically. The snooze length becomes a snooze opti
 ## Roadmap
 
 - **0.4**: own light start per lamp (each lamp can start earlier or later, one row per lamp on the time line), calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
+- **0.5** (planned): climate – heating, cooling or fans before waking up (fixed lead or learned), with room/outdoor temperature, presence and open-window conditions
 - **1.0**: Home Assistant brands entry and submission to the HACS default store
 
 ## Development

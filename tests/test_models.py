@@ -93,3 +93,23 @@ def test_invalid_values_rejected():
 def test_settings_default_snooze_must_exist():
     settings = validate_settings({"snooze_presets": [{"id": "x", "name": "X", "minutes": 7}]})
     assert settings["default_snooze"] == "x"
+
+
+def test_mode_hidden_defaults_and_unknown_keys():
+    settings = validate_settings({})
+    assert "tts" in settings["mode_hidden"]["simple"]
+    assert settings["mode_hidden"]["normal"] == []
+    settings = validate_settings({"mode_hidden": {"normal": ["audio", "from_the_future"]}})
+    assert settings["mode_hidden"]["normal"] == ["audio"]
+    assert "actions" in settings["mode_hidden"]["simple"]
+
+
+def test_frontend_and_backend_versions_match():
+    """The frontend reloads itself when these differ, so they must be bumped together."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    manifest = json.loads((root / "custom_components/daybreak/manifest.json").read_text())
+    package = json.loads((root / "frontend/package.json").read_text())
+    assert manifest["version"] == package["version"]
