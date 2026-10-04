@@ -61,6 +61,7 @@ def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "holiday_entity": manager.holiday_entity(),
         "light_profiles": manager.all_light_profiles(),
         "last_call_profiles": manager.all_last_call_profiles(),
+        "climate_profiles": manager.all_climate_profiles(),
     }
 
 
@@ -224,7 +225,7 @@ async def ws_settings(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "daybreak/profile/save",
-        vol.Required("kind"): vol.In(["light", "last_call"]),
+        vol.Required("kind"): vol.In(["light", "last_call", "climate"]),
         vol.Required("profile"): dict,
         vol.Optional("confirm", default=False): bool,
     }
@@ -247,7 +248,7 @@ async def ws_profile_save(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "daybreak/profile/delete",
-        vol.Required("kind"): vol.In(["light", "last_call"]),
+        vol.Required("kind"): vol.In(["light", "last_call", "climate"]),
         vol.Required("profile_id"): str,
     }
 )

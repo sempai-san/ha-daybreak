@@ -7,6 +7,7 @@ import {
   saveProfile,
   saveSettings,
   type AlarmConfig,
+  type ClimateProfile,
   type EditorMode,
   type HomeAssistant,
   type LastCallProfile,
@@ -200,6 +201,7 @@ export class DbSettingsView extends LitElement {
       alarms: snap.alarms.map(({ runtime: _r, ...a }) => a),
       light_profiles: snap.light_profiles.filter((p) => !p.builtin),
       last_call_profiles: snap.last_call_profiles.filter((p) => !p.builtin),
+      climate_profiles: (snap.climate_profiles ?? []).filter((p) => !p.builtin),
       settings: snap.settings,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -232,12 +234,18 @@ export class DbSettingsView extends LitElement {
         const { id, ...rest } = p;
         lcIds[id] = (await saveProfile<LastCallProfile>(hass, "last_call", rest)).id;
       }
+      const climateIds: Record<string, string> = {};
+      for (const p of (data.climate_profiles ?? []) as ClimateProfile[]) {
+        const { id, ...rest } = p;
+        climateIds[id] = (await saveProfile<ClimateProfile>(hass, "climate", rest)).id;
+      }
       for (const alarm of alarms) {
         const a = structuredClone(alarm);
         delete a.id;
         if (a.light?.profile) a.light.profile = lightIds[a.light.profile] ?? a.light.profile;
         for (const o of a.light?.overrides ?? []) if (o.profile) o.profile = lightIds[o.profile] ?? o.profile;
         if (a.last_call?.profile) a.last_call.profile = lcIds[a.last_call.profile] ?? a.last_call.profile;
+        if (a.climate?.profile) a.climate.profile = climateIds[a.climate.profile] ?? a.climate.profile;
         await createAlarm(hass, a);
       }
       fireEvent(this, "hass-notification", { message: t(hass, "import_done", { n: alarms.length }) });

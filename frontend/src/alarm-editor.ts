@@ -6,6 +6,9 @@ import {
   type Phones,
   type Action,
   type AlarmConfig,
+  type AlarmRuntime,
+  CLIMATE_DOMAINS,
+  type ClimateProfile,
   type EditorMode,
   DEFAULT_MODE_HIDDEN,
   type ModeFeature,
@@ -21,7 +24,7 @@ import {
   type WeatherKey,
 } from "./api";
 import { t, weekdayNames, type StringKey } from "./i18n";
-import { capsOf, defaultSettings, rampGradient } from "./model";
+import { capsOf, defaultClimate, defaultSettings, rampGradient } from "./model";
 import { shared } from "./styles";
 import { sunWakeMinutes } from "./components/sun-wake";
 import type { ShiftBand } from "./components/shift-line";
@@ -48,6 +51,7 @@ import "./components/light-settings";
 import "./components/entity-picker";
 import "./components/audio-source";
 import "./components/audio-line";
+import "./components/climate-settings";
 
 const PHASES: Phase[] = ["light_start", "wake", "snooze", "stop"];
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
@@ -58,7 +62,7 @@ const DAY_PRESETS: [StringKey, number[]][] = [
   ["every_day", [0, 1, 2, 3, 4, 5, 6]],
 ];
 
-type Section = "time" | "cond" | "light" | "audio" | "push" | "act" | "none" | "fb";
+type Section = "time" | "cond" | "light" | "audio" | "climate" | "push" | "act" | "none" | "fb";
 
 /**
  * Full-page editor for one alarm. Emits daybreak-save {alarm, newProfile?},
@@ -70,6 +74,9 @@ export class DaybreakAlarmEditor extends LitElement {
   @property({ attribute: false }) settings?: Settings;
   @property({ attribute: false }) lightProfiles: LightProfile[] = [];
   @property({ attribute: false }) lastCallProfiles: LastCallProfile[] = [];
+  @property({ attribute: false }) climateProfiles: ClimateProfile[] = [];
+  /** Runtime of the saved alarm (planned climate start, learned runs). */
+  @property({ attribute: false }) runtime?: AlarmRuntime;
   @property({ attribute: false }) holidayEntity: string | null = null;
   @property() mode: EditorMode = "normal";
   @property({ type: Boolean }) isNew = false;
@@ -81,6 +88,7 @@ export class DaybreakAlarmEditor extends LitElement {
     cond: false,
     light: true,
     audio: false,
+    climate: false,
     push: false,
     act: false,
     none: false,
@@ -689,6 +697,7 @@ export class DaybreakAlarmEditor extends LitElement {
           .lastCall=${d.last_call.enabled}
           .lcDuration=${this._lcDuration}
           .audioLead=${this.d.audio.enabled && this.d.audio.players.length ? this.d.audio.lead : -1}
+          .climateLead=${isWake ? this._climateLead : -1}
           .fixedWake=${d.wake.type === "sun"}
           .showSnooze=${isWake}
           .startLabel=${startLabel}
@@ -1431,6 +1440,92 @@ export class DaybreakAlarmEditor extends LitElement {
     `);
   }
 
+  /** Settings the climate runs with: its profile's, else its own. */
+  private get _climateSettings() {
+    const c = this.d.climate ?? defaultClimate();
+    return this.climateProfiles.find((p) => p.id === c.profile)?.settings ?? c.settings;
+  }
+
+  /** Minutes before the alarm the climate starts (planned by the backend if known). */
+  private get _climateLead(): number {
+    const c = this.d.climate;
+    if (!c?.enabled || !c.devices.length) return -1;
+    const s = this._climateSettings;
+    if (s.start === "fixed") return s.lead;
+    const rt = this.runtime;
+    if (rt?.climate_at && rt.next_alarm) {
+      return Math.max(0, Math.round((Date.parse(rt.next_alarm) - Date.parse(rt.climate_at)) / 60000));
+    }
+    return s.max_lead;
+  }
+
+  private _climateSection() {
+    const hass = this.hass;
+    const c = this.d.climate ?? defaultClimate();
+    const set = (change: Partial<AlarmConfig["climate"]>) => this._sub("climate", change);
+    const profile = this.climateProfiles.find((p) => p.id === c.profile);
+    const s = this._climateSettings;
+    const domains = [...new Set(c.devices.map((e) => e.split(".")[0]))];
+    const temp = ["heat", "cool", "heat_cool", "auto"].includes(s.mode) && domains.includes("climate") ? ` ${s.temperature} °C` : "";
+    const lead = this._climateLead;
+    const planned = lead >= 0 ? t(hass, "cl_planned", { time: formatClock(hass, toHHMM(toMin(this._wakeTime) - lead)) }) : "";
+    const summary = c.enabled && c.devices.length
+      ? [
+          `${t(hass, `clm_${s.mode}` as StringKey)}${temp}`,
+          profile?.name,
+          this.runtime?.climate_active ? t(hass, "cl_active") : planned,
+        ].filter(Boolean).join(" · ")
+      : t(hass, "off");
+    const noPresence = !this.d.presence.entities.length;
+    return this._section("climate", t(hass, "section_climate"), summary, () => html`
+      <div class="row">
+        <div class="grow"><div>${t(hass, "cl_on")}</div><div class="muted">${t(hass, "cl_on_d")}</div></div>
+        ${this._toggle(c.enabled, (v) => set({ enabled: v }), t(hass, "cl_on"))}
+      </div>
+      ${c.enabled
+        ? html`
+            ${this._picker(CLIMATE_DOMAINS, c.devices, (v: string[]) => set({ devices: v ?? [] }), {
+              multiple: true,
+              areaPick: true,
+              label: t(hass, "cl_devices"),
+            })}
+            <div class="muted">${t(hass, "cl_devices_hint")}</div>
+            <div class="divider"></div>
+            <div class="lbl">${t(hass, "cl_settings")}</div>
+            <div class="lock">
+              <span class="grow">${profile ? t(hass, "profile_locked", { name: profile.name }) : t(hass, "profile_own")}</span>
+              <select class="inp" @change=${(ev: Event) => set({ profile: (ev.target as HTMLSelectElement).value || null })}>
+                <option value="" ?selected=${!profile}>${t(hass, "profile_none")}</option>
+                ${this.climateProfiles.map((p) => html`<option value=${p.id} ?selected=${p.id === c.profile}>${p.name}</option>`)}
+              </select>
+              ${profile
+                ? html`<button class="btn" @click=${() => set({ profile: null, settings: structuredClone(profile.settings) })}>${t(hass, "customize")}</button>`
+                : nothing}
+            </div>
+            <db-climate-settings .hass=${hass} .settings=${s} .domains=${domains} .locked=${!!profile}
+              .samples=${this.runtime?.climate_samples ?? -1}
+              @climate-change=${(ev: CustomEvent) => set({ settings: ev.detail })}></db-climate-settings>
+            <div class="divider"></div>
+            <div class="lbl">${t(hass, "section_cond")}</div>
+            ${this._picker(["sensor"], c.room_sensor, (v: string | null) => set({ room_sensor: v || null }), {
+              label: t(hass, "cl_room"),
+              deviceClass: "temperature",
+            })}
+            <div class="muted">${t(hass, "cl_room_hint")}</div>
+            ${this._picker(["binary_sensor"], c.windows, (v: string[]) => set({ windows: v ?? [] }), {
+              multiple: true,
+              areaPick: true,
+              label: t(hass, "cl_windows"),
+            })}
+            <div class="muted">${t(hass, "cl_windows_hint")}</div>
+            <label class="row"><input type="checkbox" .checked=${c.presence}
+              @change=${(e: Event) => set({ presence: (e.target as HTMLInputElement).checked })} />${t(hass, "cl_presence")}</label>
+            ${c.presence && noPresence ? html`<div class="muted">${t(hass, "cl_presence_none")}</div>` : nothing}
+          `
+        : nothing}
+    `);
+  }
+
   private _pushSection() {
     const hass = this.hass;
     const p = this.d.push;
@@ -1639,6 +1734,7 @@ export class DaybreakAlarmEditor extends LitElement {
         ${(kind === "wake" || !this._simple) && this._has("conditions") ? this._condSection() : nothing}
         ${this._lightSection()}
         ${kind === "wake" && this._has("audio", this.d.audio.enabled) ? this._audioSection() : nothing}
+        ${kind === "wake" && this._has("climate", !!this.d.climate?.enabled) ? this._climateSection() : nothing}
         ${kind === "wake" && this._has("push", this.d.push.enabled) ? this._pushSection() : nothing}
         ${this._has("actions", PHASES.some((p) => this.d.actions[p].length)) ? this._actionsSection() : nothing}
         ${this._has("none") && kind === "wake" ? this._noneSection() : nothing}

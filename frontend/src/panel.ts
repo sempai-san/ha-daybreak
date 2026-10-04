@@ -38,9 +38,10 @@ import {
 import "./alarm-editor";
 import "./views/profiles-view";
 import "./views/last-call-view";
+import "./views/climate-view";
 import "./views/settings-view";
 
-type Tab = "alarms" | "profiles" | "last_call" | "settings";
+type Tab = "alarms" | "profiles" | "last_call" | "climate" | "settings";
 const KINDS: Kind[] = ["wake", "sleep", "kids"];
 const KIND_GRADIENT: Record<Kind, string> = {
   wake: "linear-gradient(90deg,#3a1a12,#b4441f,#ff8a4c,#ffd9a0)",
@@ -416,7 +417,7 @@ export class DaybreakPanel extends LitElement {
 
   render() {
     const hass = this.hass;
-    const tabs: Tab[] = ["alarms", "profiles", "last_call", "settings"];
+    const tabs: Tab[] = ["alarms", "profiles", "last_call", "climate", "settings"];
     return html`
       <div class="toolbar">
         <ha-menu-button .hass=${hass} .narrow=${this.narrow}></ha-menu-button>
@@ -457,6 +458,8 @@ export class DaybreakPanel extends LitElement {
         .settings=${snapshot.settings}
         .lightProfiles=${snapshot.light_profiles}
         .lastCallProfiles=${snapshot.last_call_profiles}
+        .climateProfiles=${snapshot.climate_profiles ?? []}
+        .runtime=${snapshot.alarms.find((a) => a.id === this._editing?.id)?.runtime}
         .holidayEntity=${snapshot.holiday_entity}
         .mode=${this._editorMode}
         .isNew=${!this._editing.id}
@@ -478,6 +481,8 @@ export class DaybreakPanel extends LitElement {
         return html`<db-profiles-view .hass=${this.hass} .snapshot=${snapshot} .mode=${this._editorMode}></db-profiles-view>`;
       case "last_call":
         return html`<db-last-call-view .hass=${this.hass} .snapshot=${snapshot}></db-last-call-view>`;
+      case "climate":
+        return html`<db-climate-view .hass=${this.hass} .snapshot=${snapshot}></db-climate-view>`;
       case "settings":
         return html`<db-settings-view .hass=${this.hass} .snapshot=${snapshot}></db-settings-view>`;
       default:
