@@ -41,6 +41,7 @@ from homeassistant.helpers.event import (
     async_track_time_change,
     async_track_time_interval,
 )
+from homeassistant.helpers.location import find_coordinates
 from homeassistant.helpers.script import Script, async_validate_actions_config
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.target import (
@@ -51,6 +52,16 @@ from homeassistant.util import dt as dt_util
 
 from . import astro, push
 from .audio import AlarmAudio
+from .calendar_rules import (
+    CALENDAR_DAYS,
+    CalEvent,
+    Decision,
+    calendars_used,
+    decide,
+    events_on,
+    needs_travel,
+    parse_event,
+)
 from .climate_control import (
     MAX_SAMPLES,
     ClimateConfig,
@@ -103,7 +114,14 @@ from .models import (
     validate_light_profile,
     validate_settings,
 )
-from .scheduler import SEARCH_DAYS, is_one_time, light_lead_on, next_occurrence
+from .scheduler import (
+    SEARCH_DAYS,
+    day_matches,
+    is_one_time,
+    light_lead_on,
+    next_occurrence,
+    wake_time_on,
+)
 from .shift import ShiftInputs, ShiftResult, evaluate
 
 _LOGGER = logging.getLogger(__name__)
@@ -119,6 +137,12 @@ KIDS_GREEN = timedelta(minutes=30)
 # Shift rules are checked this long before the light starts, and every few minutes.
 SHIFT_LOOKAHEAD = timedelta(hours=3)
 SHIFT_INTERVAL = timedelta(minutes=5)
+# Calendars are read again after this long; travel times are kept this long.
+CALENDAR_MAX_AGE = timedelta(minutes=15)
+TRAVEL_MAX_AGE = timedelta(hours=6)
+TRAVEL_LIVE_AGE = timedelta(minutes=10)
+# Within this time before an event the travel time uses live traffic.
+TRAVEL_LIVE = timedelta(hours=3)
 # Ringing effects.
 EFFECT_INTERVAL = timedelta(seconds=2)
 PULSE_LOW = 0.35
@@ -328,6 +352,13 @@ class DaybreakManager:
         self._handled: dict[str, str] = {}
         self._runtime: dict[str, AlarmRuntime] = {}
         self._holidays: dict[date, bool] = {}
+        # Calendar events of the coming days and the decisions of the rules.
+        self._events: list[CalEvent] = []
+        self._events_for: set[str] = set()
+        self._events_at: datetime | None = None
+        self._decisions: dict[str, dict[date, Decision]] = {}
+        self._travel: dict[tuple[str, str, bool], tuple[int | None, datetime]] = {}
+        self._calendar_task: Any = None
         self._unsubs: list[CALLBACK_TYPE] = []
 
     # ------------------------------------------------------------------ setup
@@ -380,7 +411,13 @@ class DaybreakManager:
                 self.hass, self._job(self.async_refresh_holidays), hour=0, minute=5, second=0
             )
         )
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass, self._job(self.async_refresh_calendars), SHIFT_INTERVAL
+            )
+        )
         self.hass.async_create_task(self.async_refresh_holidays(), eager_start=False)
+        self._request_calendars(force=True)
 
     async def async_unload(self) -> None:
         while self._unsubs:
@@ -437,6 +474,8 @@ class DaybreakManager:
         self._schedule(alarm["id"])
         if not alarm["wake_on_holidays"]:
             self.hass.async_create_task(self.async_refresh_holidays(), eager_start=False)
+        if alarm["calendar"]["enabled"]:
+            self._request_calendars(force=True)
         return alarm
 
     async def async_update(self, alarm_id: str, changes: dict[str, Any]) -> dict[str, Any]:
@@ -460,6 +499,12 @@ class DaybreakManager:
         self._schedule(alarm_id)
         if current["wake_on_holidays"] and not alarm["wake_on_holidays"]:
             self.hass.async_create_task(self.async_refresh_holidays(), eager_start=False)
+        if (alarm["calendar"], alarm["repeat"], alarm["enabled"]) != (
+            current["calendar"],
+            current["repeat"],
+            current["enabled"],
+        ) and (alarm["calendar"]["enabled"] or current["calendar"]["enabled"] or self._decisions):
+            self._request_calendars(force=True)
         return alarm
 
     async def async_delete(self, alarm_id: str) -> None:
@@ -477,7 +522,10 @@ class DaybreakManager:
         self._climate_learn.pop(alarm_id, None)
         del self.alarms[alarm_id]
         self._handled.pop(alarm_id, None)
+        self._decisions.pop(alarm_id, None)
         self._save()
+        if self._decisions:
+            self._request_calendars()
         if device := find_device(self.hass, (DOMAIN, alarm_id)):
             dr.async_get(self.hass).async_remove_device(device.id)
         async_dispatcher_send(self.hass, SIGNAL_ALARMS_CHANGED)
@@ -690,7 +738,22 @@ class DaybreakManager:
             "climate_at": iso(runtime.climate_at),
             "climate_active": bool(runtime.climate and runtime.climate.active),
             "climate_samples": len(self._climate_learn.get(alarm_id, [])),
+            "calendar": decision.as_dict()
+            if (decision := self.calendar_decision(alarm_id))
+            else None,
+            "calendar_days": [
+                {"date": day.isoformat(), **item.as_dict()}
+                for day, item in sorted(self._decisions.get(alarm_id, {}).items())
+                if day >= dt_util.now().date()
+            ],
         }
+
+    def calendar_decision(self, alarm_id: str) -> Decision | None:
+        """The calendar decision behind the next alarm, if any."""
+        base = self._runtime[alarm_id].base_time
+        if not base:
+            return None
+        return self._decisions.get(alarm_id, {}).get(dt_util.as_local(base).date())
 
     def as_dict(self, alarm_id: str) -> dict[str, Any]:
         return {**self.alarms[alarm_id], "runtime": self.runtime_info(alarm_id)}
@@ -780,7 +843,14 @@ class DaybreakManager:
         after = now
         if handled := self._handled.get(alarm_id):
             after = max(now, dt_util.parse_datetime(handled) or now)
-        base = next_occurrence(alarm, after, tz, sun=self._sun, is_holiday=self._is_holiday)
+        base = next_occurrence(
+            alarm,
+            after,
+            tz,
+            sun=self._sun,
+            is_holiday=self._is_holiday,
+            day_rule=self._decisions.get(alarm_id, {}).get,
+        )
         runtime.base_time = base
         if runtime.shift_for != base:
             runtime.shift = ShiftResult()
@@ -1154,6 +1224,227 @@ class DaybreakManager:
                 if _WARNING_LEVEL_RE.match(key) and (number := _as_float(value)) is not None:
                     level = max(level, int(number))
         return level
+
+    # --------------------------------------------------------------- calendar
+
+    @callback
+    def _request_calendars(self, *, force: bool = False) -> None:
+        """Re-read the calendars soon (one refresh at a time)."""
+        if force:
+            self._events_at = None
+        if self._calendar_task and not self._calendar_task.done():
+            if force:
+                self._calendar_task.add_done_callback(lambda _t: self._request_calendars())
+            return
+        self._calendar_task = self.hass.async_create_task(
+            self.async_refresh_calendars(), eager_start=False
+        )
+
+    def _calendars_needed(self) -> set[str]:
+        needed: set[str] = set()
+        for alarm in self.alarms.values():
+            used = calendars_used(alarm)
+            if used is None:
+                return set(self.hass.states.async_entity_ids("calendar"))
+            needed |= used
+        return needed
+
+    async def _async_fetch_events(self, calendars: set[str]) -> list[CalEvent]:
+        tz = self._tz()
+        start = datetime.combine(dt_util.now().date() - timedelta(days=1), datetime.min.time(), tz)
+        end = start + timedelta(days=CALENDAR_DAYS + 1)
+        calendars = {c for c in calendars if self.hass.states.get(c)}
+        if not calendars or not self.hass.services.has_service("calendar", "get_events"):
+            return []
+        response = await self.hass.services.async_call(
+            "calendar",
+            "get_events",
+            {"start_date_time": start.isoformat(), "end_date_time": end.isoformat()},
+            target={ATTR_ENTITY_ID: sorted(calendars)},
+            blocking=True,
+            return_response=True,
+        )
+        events: list[CalEvent] = []
+        for calendar, data in (response or {}).items():
+            for raw in (data or {}).get("events", []):
+                if event := parse_event(calendar, raw, tz):
+                    events.append(event)
+        return events
+
+    async def async_refresh_calendars(self) -> None:
+        """Read the calendars (if stale), work out travel times and the decisions."""
+        needed = self._calendars_needed()
+        now = dt_util.utcnow()
+        if not needed:
+            self._events, self._events_for, self._events_at = [], set(), None
+        elif (
+            self._events_at is None
+            or now - self._events_at > CALENDAR_MAX_AGE
+            or not needed <= self._events_for
+        ):
+            try:
+                self._events = await self._async_fetch_events(needed)
+                self._events_for, self._events_at = needed, now
+            except Exception:
+                _LOGGER.warning("DayBreak: reading the calendars failed", exc_info=True)
+        decisions: dict[str, dict[date, Decision]] = {}
+        for alarm_id, alarm in self.alarms.items():
+            if days := await self._async_decide_days(alarm, self._events):
+                decisions[alarm_id] = days
+        self._hand_over(decisions)
+        if decisions != self._decisions:
+            self._decisions = decisions
+            self._schedule_all()
+
+    async def _async_decide_days(
+        self, alarm: dict[str, Any], events: list[CalEvent]
+    ) -> dict[date, Decision]:
+        if not alarm["calendar"]["enabled"] or not events:
+            return {}
+        tz = self._tz()
+        today = dt_util.now().date()
+        days = [today + timedelta(days=offset) for offset in range(-1, CALENDAR_DAYS)]
+        wanted: list[CalEvent] = []
+
+        def collect(event: CalEvent) -> int | None:
+            wanted.append(event)
+            return None
+
+        if needs_travel(alarm):
+            for day in days:
+                decide(alarm, events, day, tz, normal_day=day_matches(alarm, day), travel=collect)
+        travel: dict[str, int | None] = {}
+        for event in wanted:
+            if event.key not in travel:
+                travel[event.key] = await self._async_travel_minutes(alarm, event)
+        result: dict[date, Decision] = {}
+        for day in days:
+            decision = decide(
+                alarm,
+                events,
+                day,
+                tz,
+                normal_day=day_matches(alarm, day),
+                travel=lambda e: travel.get(e.key),
+            )
+            if decision is not None:
+                result[day] = decision
+        return result
+
+    def _hand_over(self, decisions: dict[str, dict[date, Decision]]) -> None:
+        """Rules "another alarm rings": the other alarm rings on that day."""
+        handed: list[tuple[str, date, Decision, str]] = []
+        for alarm_id, days in decisions.items():
+            for day, decision in list(days.items()):
+                if decision.action != "alarm":
+                    continue
+                target = self.alarms.get(decision.alarm or "")
+                if not target or not target["enabled"]:
+                    # Never leave a day without an alarm: keep this one.
+                    del days[day]
+                    continue
+                handed.append((target["id"], day, decision, alarm_id))
+        for target_id, day, decision, source in handed:
+            own = decisions.setdefault(target_id, {})
+            if day not in own:
+                own[day] = Decision(
+                    "ring", decision.rule, any_day=True, event=decision.event, alarm=source
+                )
+
+    def _waze_region(self, setting: str) -> str:
+        if setting != "auto":
+            return setting
+        country = (self.hass.config.country or "").upper()
+        return {"US": "us", "CA": "na", "IL": "il", "AU": "au", "NZ": "au"}.get(country, "eu")
+
+    async def _async_travel_minutes(self, alarm: dict[str, Any], event: CalEvent) -> int | None:
+        """Travel time to the event's location (Waze), or None."""
+        if not event.location or not self.hass.services.has_service(
+            "waze_travel_time", "get_travel_times"
+        ):
+            return None
+        settings = alarm["calendar"]["travel"]
+        origin_entity = settings["origin"] or "zone.home"
+        origin = find_coordinates(self.hass, origin_entity)
+        if not origin or origin == origin_entity:
+            return None
+        now = dt_util.utcnow()
+        live = event.start - now < TRAVEL_LIVE
+        key = (
+            f"{origin}|{settings['region']}|{settings['vehicle']}|{settings['avoid_toll']}",
+            event.location,
+            live,
+        )
+        if (cached := self._travel.get(key)) and now - cached[1] < (
+            TRAVEL_LIVE_AGE if live else TRAVEL_MAX_AGE
+        ):
+            return cached[0]
+        minutes: int | None = None
+        try:
+            response = await self.hass.services.async_call(
+                "waze_travel_time",
+                "get_travel_times",
+                {
+                    "origin": origin,
+                    "destination": event.location,
+                    "region": self._waze_region(settings["region"]),
+                    "vehicle_type": settings["vehicle"],
+                    "realtime": live,
+                    "avoid_toll_roads": settings["avoid_toll"],
+                },
+                blocking=True,
+                return_response=True,
+            )
+            durations = [
+                float(route["duration"])
+                for route in (response or {}).get("routes", [])
+                if route.get("duration") is not None
+            ]
+            if durations:
+                minutes = round(min(durations))
+        except Exception:
+            _LOGGER.debug("DayBreak: travel time to %s failed", event.location, exc_info=True)
+        self._travel[key] = (minutes, now)
+        return minutes
+
+    async def async_calendar_preview(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        """What the (unsaved) calendar rules of an alarm would do in the coming days."""
+        alarm = validate_alarm(data)
+        used = calendars_used(alarm)
+        needed = set(self.hass.states.async_entity_ids("calendar")) if used is None else used
+        if needed <= self._events_for and self._events_at:
+            events = self._events
+        else:
+            events = await self._async_fetch_events(needed)
+        days = await self._async_decide_days(alarm, events)
+        tz = self._tz()
+        today = dt_util.now().date()
+        result = []
+        for offset in range(CALENDAR_DAYS):
+            day = today + timedelta(days=offset)
+            decision = days.get(day)
+            # Handed over to this alarm by another alarm's rule.
+            if decision is None and data.get("id"):
+                other = self._decisions.get(data["id"], {}).get(day)
+                if other is not None and other.action == "ring":
+                    decision = other
+            normal = day_matches(alarm, day)
+            usual = wake_time_on(alarm, day, tz, self._sun) if normal else None
+            result.append(
+                {
+                    "date": day.isoformat(),
+                    "normal": normal,
+                    "holiday": self._is_holiday(day),
+                    "time": usual.isoformat() if usual else None,
+                    "events": [
+                        {"summary": e.summary, "start": e.start.isoformat(), "all_day": e.all_day}
+                        for e in sorted(events_on(events, day, tz), key=lambda e: e.start)
+                        if used is None or e.calendar in used
+                    ][:6],
+                    "decision": decision.as_dict() if decision else None,
+                }
+            )
+        return result
 
     # --------------------------------------------------------------- holidays
 
