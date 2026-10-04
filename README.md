@@ -158,7 +158,7 @@ Your alarms are converted automatically. The snooze length becomes a snooze opti
 
 ## Roadmap
 
-- **0.4**: calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
+- **0.4**: own light start per lamp (each lamp can start earlier or later, one row per lamp on the time line), calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
 - **1.0**: Home Assistant brands entry and submission to the HACS default store
 
 ## Development
