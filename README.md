@@ -4,7 +4,7 @@
 
 DayBreak wakes you up gently: your lights fade in like a sunrise before the alarm time. You manage alarms in a dedicated sidebar panel and control them from dashboard cards. Every alarm is also available to automations as entities, events and actions.
 
-> **Status:** v0.2. Sunrise, sleep and kids lights, sun-based times, automatic shifts, profiles and the new editor work. Audio and calendars are on the [roadmap](#roadmap).
+> **Status:** v0.3. Sunrise, sleep and kids lights, sun-based times, automatic shifts, profiles, audio and phone notifications with Snooze/Stop work. Calendars are on the [roadmap](#roadmap).
 
 ![DayBreak panel](docs/images/panel.png)
 
@@ -34,6 +34,13 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - Snooze options (e.g. 5/9/15 min) are defined once in the settings and chosen per alarm
 - After N snoozes the **last call** starts: a profile with all lights on and any actions, for a limited time only; otherwise the alarm stops by itself
 - Turning a lamp off by hand stops the alarm (optional)
+
+**Audio and phone**
+- Music Assistant (playlist, radio, album, track – with search in the editor), a sound URL and a spoken announcement (text-to-speech template, e.g. time and temperature)
+- Music starts a few minutes before the alarm, quietly, and gets louder; it pauses while snoozing and the old volume is restored afterwards
+- **Speaker button**: pause on the speaker (e.g. tapping a HomePod) snoozes, during the last call it stops the alarm
+- Last call profiles can bring their own audio and volume
+- **Phone notifications with Snooze and Stop** to the owners' Home Assistant apps (found automatically) and other devices; the last call can be a **critical alert** that rings even in Do Not Disturb
 
 **More**
 - Actions at light start, alarm, snooze and stop (any Home Assistant action)
@@ -151,8 +158,7 @@ Your alarms are converted automatically. The snooze length becomes a snooze opti
 
 ## Roadmap
 
-- **0.3**: audio (media players, Music Assistant, volume ramp), stop/snooze with the speaker's own button (e.g. HomePod), mobile notifications with snooze/stop buttons
-- **0.4**: calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
+- **0.4**: own light start per lamp (each lamp can start earlier or later, one row per lamp on the time line), calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
 - **1.0**: Home Assistant brands entry and submission to the HACS default store
 
 ## Development

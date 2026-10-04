@@ -17,6 +17,7 @@ import voluptuous as vol
 from .const import SIGNAL_ALARMS_CHANGED
 from .helpers import get_manager
 from .manager import DaybreakError
+from .push import person_services, phone_services
 
 ACTIONS = [
     "snooze",
@@ -45,6 +46,8 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_sun)
     websocket_api.async_register_command(hass, ws_preview)
     websocket_api.async_register_command(hass, ws_once)
+    websocket_api.async_register_command(hass, ws_ma_search)
+    websocket_api.async_register_command(hass, ws_phones)
 
 
 def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
@@ -330,3 +333,77 @@ async def ws_once(
         _error(connection, msg["id"], err)
         return
     connection.send_result(msg["id"], get_manager(hass).as_dict(msg["alarm_id"]))
+
+
+MA_KEYS = {
+    "playlists": "playlist",
+    "radio": "radio",
+    "albums": "album",
+    "tracks": "track",
+    "artists": "artist",
+    "podcasts": "podcast",
+    "audiobooks": "audiobook",
+}
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "daybreak/ma_search",
+        vol.Required("query"): str,
+        vol.Optional("media_type"): vol.Any(None, str),
+    }
+)
+@websocket_api.async_response
+async def ws_ma_search(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Search Music Assistant for playlists, radio stations, albums and tracks."""
+    entries = hass.config_entries.async_loaded_entries("music_assistant")
+    if not entries or not hass.services.has_service("music_assistant", "search"):
+        connection.send_error(msg["id"], "no_music_assistant", "Music Assistant is not set up")
+        return
+    data: dict[str, Any] = {
+        "config_entry_id": entries[0].entry_id,
+        "name": msg["query"],
+        "limit": 8,
+    }
+    if msg.get("media_type"):
+        data["media_type"] = [msg["media_type"]]
+    try:
+        response = await hass.services.async_call(
+            "music_assistant", "search", data, blocking=True, return_response=True
+        )
+    except HomeAssistantError as err:
+        _error(connection, msg["id"], err)
+        return
+    items: list[dict[str, Any]] = []
+    for key, media_type in MA_KEYS.items():
+        for item in (response or {}).get(key, []) or []:
+            items.append(
+                {
+                    "name": item.get("name", ""),
+                    "uri": item.get("uri") or item.get("name", ""),
+                    "media_type": item.get("media_type", media_type),
+                    "image": item.get("image"),
+                    "artist": ", ".join(a.get("name", "") for a in item.get("artists", []) or []),
+                }
+            )
+    connection.send_result(msg["id"], items)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "daybreak/phones"})
+@callback
+def ws_phones(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Companion app notify services and which person they belong to."""
+    persons = hass.states.async_entity_ids("person")
+    connection.send_result(
+        msg["id"],
+        {
+            "services": phone_services(hass),
+            "persons": {person: person_services(hass, person) for person in persons},
+            "music_assistant": bool(hass.config_entries.async_loaded_entries("music_assistant")),
+            "tts": sorted(hass.states.async_entity_ids("tts")),
+        },
+    )

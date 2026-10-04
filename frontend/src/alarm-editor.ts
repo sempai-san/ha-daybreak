@@ -1,7 +1,9 @@
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
 import {
+  fetchPhones,
   fetchSun,
+  type Phones,
   type Action,
   type AlarmConfig,
   type EditorMode,
@@ -40,6 +42,7 @@ import "./components/sun-wake";
 import "./components/shift-line";
 import "./components/light-settings";
 import "./components/entity-picker";
+import "./components/audio-source";
 
 const PHASES: Phase[] = ["light_start", "wake", "snooze", "stop"];
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
@@ -50,7 +53,7 @@ const DAY_PRESETS: [StringKey, number[]][] = [
   ["every_day", [0, 1, 2, 3, 4, 5, 6]],
 ];
 
-type Section = "time" | "cond" | "light" | "audio" | "act" | "none" | "fb";
+type Section = "time" | "cond" | "light" | "audio" | "push" | "act" | "none" | "fb";
 
 /**
  * Full-page editor for one alarm. Emits daybreak-save {alarm, newProfile?},
@@ -73,6 +76,7 @@ export class DaybreakAlarmEditor extends LitElement {
     cond: false,
     light: true,
     audio: false,
+    push: false,
     act: false,
     none: false,
     fb: false,
@@ -84,6 +88,7 @@ export class DaybreakAlarmEditor extends LitElement {
   @state() private _newProfileName = "";
   @state() private _sun?: SunTimes;
   @state() private _overrideOpen = -1;
+  @state() private _phones?: Phones;
   private _sunDate = "";
 
   static styles = [
@@ -414,6 +419,11 @@ export class DaybreakAlarmEditor extends LitElement {
       this._unlocked = false;
       this._newProfileName = "";
     }
+    if (this.hass && !this._phones) {
+      fetchPhones(this.hass)
+        .then((p) => (this._phones = p))
+        .catch(() => undefined);
+    }
     const date = this._nextDate();
     if (this.hass && date !== this._sunDate) {
       this._sunDate = date;
@@ -660,6 +670,7 @@ export class DaybreakAlarmEditor extends LitElement {
           .count=${this._snoozeCount}
           .lastCall=${d.last_call.enabled}
           .lcDuration=${this._lcDuration}
+          .audioLead=${this.d.audio.enabled && this.d.audio.players.length ? this.d.audio.lead : -1}
           .fixedWake=${d.wake.type === "sun"}
           .showSnooze=${isWake}
           .startLabel=${startLabel}
@@ -1314,9 +1325,121 @@ export class DaybreakAlarmEditor extends LitElement {
 
   private _audioSection() {
     const hass = this.hass;
-    return this._section("audio", t(hass, "section_audio"), t(hass, "from_version", { v: "0.3" }), () =>
-      html`<div class="muted">${t(hass, "audio_soon")}</div>`,
-    );
+    const au = this.d.audio;
+    const summary = au.enabled && au.players.length
+      ? [au.source.name || au.source.media_id || au.source.url || t(hass, "src_none"), au.tts.enabled ? t(hass, "tts_short") : ""]
+          .filter(Boolean)
+          .join(" · ")
+      : t(hass, "off");
+    const set = (change: Partial<AlarmConfig["audio"]>) => this._sub("audio", change);
+    return this._section("audio", t(hass, "section_audio"), summary, () => html`
+      <div class="row">
+        <div class="grow"><div>${t(hass, "audio_on")}</div><div class="muted">${t(hass, "audio_on_d")}</div></div>
+        ${this._toggle(au.enabled, (v) => set({ enabled: v }), t(hass, "audio_on"))}
+      </div>
+      ${au.enabled
+        ? html`
+            ${this._picker(["media_player"], au.players, (v: string[]) => set({ players: v ?? [] }), {
+              multiple: true,
+              label: t(hass, "audio_players"),
+            })}
+            <div class="lbl">${t(hass, "audio_what")}</div>
+            <db-audio-source .hass=${hass} .source=${au.source} .hasMusicAssistant=${this._phones?.music_assistant ?? true}
+              @source-change=${(ev: CustomEvent) => set({ source: ev.detail })}></db-audio-source>
+            <div class="lbl">${t(hass, "audio_volume")}</div>
+            <div class="grid2">
+              ${!this._simple
+                ? html`<label class="field">${t(hass, "audio_vol_start")}
+                    <input class="inp" type="number" min="0" max="100" .value=${String(au.volume[0])}
+                      @change=${(e: Event) => set({ volume: [clamp(Number((e.target as HTMLInputElement).value), 0, 100), au.volume[1]] })} /></label>`
+                : nothing}
+              <label class="field">${t(hass, "audio_vol_end")}
+                <input class="inp" type="number" min="0" max="100" .value=${String(au.volume[1])}
+                  @change=${(e: Event) => set({ volume: [au.volume[0], clamp(Number((e.target as HTMLInputElement).value), 0, 100)] })} /></label>
+              <label class="field">${t(hass, "audio_lead")}
+                <input class="inp" type="number" min="0" max="60" .value=${String(au.lead)}
+                  @change=${(e: Event) => set({ lead: clamp(Number((e.target as HTMLInputElement).value), 0, 60) })} /></label>
+              ${!this._simple
+                ? html`<label class="field">${t(hass, "audio_ramp")}
+                    <input class="inp" type="number" min="0" max="60" .value=${String(au.ramp)}
+                      @change=${(e: Event) => set({ ramp: clamp(Number((e.target as HTMLInputElement).value), 0, 60) })} /></label>`
+                : nothing}
+            </div>
+            ${!this._simple
+              ? html`<div class="lbl">${t(hass, "tts_title")}</div>
+                  <div class="row">
+                    <div class="grow"><div>${t(hass, "tts_on")}</div><div class="muted">${t(hass, "tts_on_d")}</div></div>
+                    ${this._toggle(au.tts.enabled, (v) => set({ tts: { ...au.tts, enabled: v } }), t(hass, "tts_on"))}
+                  </div>
+                  ${au.tts.enabled
+                    ? html`<textarea class="inp" rows="3" style="height:auto;padding:8px 10px"
+                          placeholder=${t(hass, "tts_ph")} .value=${au.tts.message}
+                          @change=${(e: Event) => set({ tts: { ...au.tts, message: (e.target as HTMLTextAreaElement).value } })}></textarea>
+                        <div class="muted">${t(hass, "tts_vars")}</div>
+                        ${this._expert
+                          ? html`<label class="row"><span>${t(hass, "tts_engine")}</span>
+                              <select class="inp" @change=${(e: Event) => set({ tts: { ...au.tts, engine: (e.target as HTMLSelectElement).value || null } })}>
+                                <option value="">${t(hass, "tts_auto")}</option>
+                                ${(this._phones?.tts ?? []).map((e) => html`<option value=${e} ?selected=${au.tts.engine === e}>${friendlyName(hass, e)}</option>`)}
+                              </select></label>`
+                          : nothing}`
+                    : nothing}
+                  <div class="lbl">${t(hass, "audio_behaviour")}</div>
+                  <label class="row"><input type="checkbox" .checked=${au.button}
+                    @change=${(e: Event) => set({ button: (e.target as HTMLInputElement).checked })} />${t(hass, "audio_button")}</label>
+                  <label class="row"><input type="checkbox" .checked=${au.pause_on_snooze}
+                    @change=${(e: Event) => set({ pause_on_snooze: (e.target as HTMLInputElement).checked })} />${t(hass, "audio_pause")}</label>
+                  <label class="row"><input type="checkbox" .checked=${au.restore_volume}
+                    @change=${(e: Event) => set({ restore_volume: (e.target as HTMLInputElement).checked })} />${t(hass, "audio_restore")}</label>`
+              : html`<div class="muted">${t(hass, "audio_button_hint")}</div>`}
+          `
+        : nothing}
+    `);
+  }
+
+  private _pushSection() {
+    const hass = this.hass;
+    const p = this.d.push;
+    const phones = this._phones;
+    const ownerServices = [...new Set(this.d.owners.flatMap((o) => phones?.persons[o] ?? []))];
+    const all = [...new Set([...(p.owners ? ownerServices : []), ...p.targets])];
+    const set = (change: Partial<AlarmConfig["push"]>) => this._sub("push", change);
+    const label = (svc: string) => svc.replace(/^mobile_app_/, "").replace(/_/g, " ");
+    const summary = p.enabled ? (all.length ? all.map(label).join(", ") : t(hass, "push_no_device")) : t(hass, "off");
+    return this._section("push", t(hass, "section_push"), summary, () => html`
+      <div class="row">
+        <div class="grow"><div>${t(hass, "push_on")}</div><div class="muted">${t(hass, "push_on_d")}</div></div>
+        ${this._toggle(p.enabled, (v) => set({ enabled: v }), t(hass, "push_on"))}
+      </div>
+      ${p.enabled
+        ? html`<label class="row"><input type="checkbox" .checked=${p.owners}
+              @change=${(e: Event) => set({ owners: (e.target as HTMLInputElement).checked })} />
+              ${t(hass, "push_owners")}</label>
+            <div class="muted">
+              ${this.d.owners.length
+                ? ownerServices.length
+                  ? t(hass, "push_found", { devices: ownerServices.map(label).join(", ") })
+                  : t(hass, "push_none_found")
+                : t(hass, "push_no_owner")}
+            </div>
+            <div class="lbl">${t(hass, "push_more")}</div>
+            ${phones && !phones.services.length ? html`<div class="muted">${t(hass, "push_no_apps")}</div>` : nothing}
+            <div class="row">
+              ${(phones?.services ?? []).map(
+                (svc) => html`<button class="chip" aria-pressed=${p.targets.includes(svc)}
+                  ?disabled=${p.owners && ownerServices.includes(svc)}
+                  @click=${() => set({ targets: p.targets.includes(svc) ? p.targets.filter((x) => x !== svc) : [...p.targets, svc] })}>
+                  ${label(svc)}</button>`,
+              )}
+            </div>
+            ${this.d.last_call.enabled
+              ? html`<div class="tile row">
+                  <div class="grow"><div>${t(hass, "push_critical")}</div><div class="muted">${t(hass, "push_critical_d")}</div></div>
+                  ${this._toggle(p.critical_last_call, (v) => set({ critical_last_call: v }), t(hass, "push_critical"))}
+                </div>`
+              : nothing}`
+        : nothing}
+    `);
   }
 
   private _actionsSection() {
@@ -1482,6 +1605,7 @@ export class DaybreakAlarmEditor extends LitElement {
         ${kind === "wake" || !this._simple ? this._condSection() : nothing}
         ${this._lightSection()}
         ${kind === "wake" ? this._audioSection() : nothing}
+        ${kind === "wake" ? this._pushSection() : nothing}
         ${!this._simple ? this._actionsSection() : nothing}
         ${!this._simple && kind === "wake" ? this._noneSection() : nothing}
         ${this._fallbackSection()}

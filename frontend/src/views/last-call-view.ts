@@ -12,6 +12,8 @@ import { errorText, t } from "../i18n";
 import { shared } from "../styles";
 import { clamp, fireEvent, friendlyName, lightsOf } from "../util";
 import "../components/entity-picker";
+import "../components/audio-source";
+import { defaultSource } from "../model";
 
 /** "Last call" profiles: what happens when nobody reacts. */
 export class DbLastCallView extends LitElement {
@@ -153,7 +155,20 @@ export class DbLastCallView extends LitElement {
       <div class="wrap">
         <aside class="card">
           <button class="btn primary" @click=${() =>
-            this._start({ id: "", name: t(hass, "lc_new_name"), duration: 10, targets: {}, brightness: 100, kelvin: 5000, actions: [] }, false)}>
+            this._start(
+              {
+                id: "",
+                name: t(hass, "lc_new_name"),
+                duration: 10,
+                targets: {},
+                brightness: 100,
+                kelvin: 5000,
+                actions: [],
+                audio: defaultSource(),
+                volume: null,
+              },
+              false,
+            )}>
             + ${t(hass, "profile_new_btn")}
           </button>
           ${this._profiles.map(
@@ -193,7 +208,9 @@ export class DbLastCallView extends LitElement {
       <div class="tile">${this._describe(p)}${p.kelvin ? ` · ${p.kelvin} K` : ""}</div>
       ${shared ? html`<div class="warn">${t(hass, "profile_shared_hint")}</div>` : nothing}
       <div class="muted">${t(hass, "used_by")}: ${users.length ? users.map((a) => a.name).join(", ") : t(hass, "nobody")}</div>
-      <div class="muted">${t(hass, "audio_lc_soon")}</div>
+      <div class="muted">${p.audio?.type && p.audio.type !== "none"
+        ? t(hass, "lc_audio_own", { name: p.audio.name || p.audio.media_id || p.audio.url })
+        : t(hass, "lc_audio_keep")}${p.volume !== null && p.volume !== undefined ? ` · ${Math.round(p.volume)} %` : ""}</div>
     `;
   }
 
@@ -237,6 +254,16 @@ export class DbLastCallView extends LitElement {
           ev.stopPropagation();
           set({ targets: { entity_id: ev.detail.value ?? [] } });
         }}></db-entity-picker>
+      <div class="lbl">${t(hass, "section_audio")}</div>
+      <db-audio-source .hass=${hass} .source=${draft.audio ?? defaultSource()} .noneLabel=${t(hass, "lc_audio_keep_short")}
+        @source-change=${(ev: CustomEvent) => set({ audio: ev.detail })}></db-audio-source>
+      <label class="field" style="max-width:240px">${t(hass, "lc_volume")}
+        <input class="inp" type="number" min="0" max="100" placeholder=${t(hass, "lc_volume_ph")}
+          .value=${draft.volume === null || draft.volume === undefined ? "" : String(draft.volume)}
+          @change=${(ev: Event) => {
+            const v = (ev.target as HTMLInputElement).value;
+            set({ volume: v === "" ? null : clamp(Number(v), 0, 100) });
+          }} /></label>
       <div class="lbl">${t(hass, "lc_actions")}</div>
       <div class="muted">${t(hass, "lc_actions_hint")}</div>
       <ha-selector .required=${false} .hass=${hass} .selector=${{ action: {} }} .value=${draft.actions}

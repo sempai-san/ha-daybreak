@@ -1,5 +1,5 @@
 // Defaults and light maths. Mirrors models.py and curve.py of the backend.
-import type { AlarmConfig, ColorPreset, Kind, LightSettings, Point, SequenceStep } from "./api";
+import type { AlarmConfig, AudioSource, ColorPreset, Kind, LightSettings, Point, SequenceStep } from "./api";
 
 export const PRESET_POINTS: Record<string, [number, number][]> = {
   // Long dark phase, bright only near the end (like a real sunrise).
@@ -70,6 +70,10 @@ export function defaultSettings(): LightSettings {
   };
 }
 
+export function defaultSource(): AudioSource {
+  return { type: "none", media_id: "", media_type: "playlist", name: "", url: "" };
+}
+
 export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
   const alarm: AlarmConfig = {
     name,
@@ -111,6 +115,19 @@ export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
       events: ["skipped", "shifted", "device_unavailable", "failed"],
       persistent: true,
     },
+    audio: {
+      enabled: false,
+      players: [],
+      source: defaultSource(),
+      tts: { enabled: false, engine: null, message: "" },
+      lead: 5,
+      volume: [5, 35],
+      ramp: 5,
+      pause_on_snooze: true,
+      button: true,
+      restore_volume: true,
+    },
+    push: { enabled: true, owners: true, targets: [], critical_last_call: false },
   };
   if (kind === "sleep") {
     alarm.wake.time = "22:30";

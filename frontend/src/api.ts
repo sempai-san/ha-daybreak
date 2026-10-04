@@ -99,6 +99,49 @@ export interface Repeat {
   date: string | null;
 }
 
+export interface AudioSource {
+  type: "none" | "music_assistant" | "url";
+  media_id: string;
+  media_type: "playlist" | "radio" | "album" | "track" | "artist" | "podcast" | "audiobook";
+  name: string;
+  url: string;
+}
+
+export interface AudioConfig {
+  enabled: boolean;
+  players: string[];
+  source: AudioSource;
+  tts: { enabled: boolean; engine: string | null; message: string };
+  lead: number;
+  volume: [number, number];
+  ramp: number;
+  pause_on_snooze: boolean;
+  button: boolean;
+  restore_volume: boolean;
+}
+
+export interface PushConfig {
+  enabled: boolean;
+  owners: boolean;
+  targets: string[];
+  critical_last_call: boolean;
+}
+
+export interface MaItem {
+  name: string;
+  uri: string;
+  media_type: AudioSource["media_type"];
+  image?: string | null;
+  artist?: string;
+}
+
+export interface Phones {
+  services: string[];
+  persons: Record<string, string[]>;
+  music_assistant: boolean;
+  tts: string[];
+}
+
 export type WeatherKey = "snow" | "storm" | "rain";
 export type Action = Record<string, unknown>;
 export type Phase = "light_start" | "wake" | "snooze" | "stop";
@@ -166,6 +209,8 @@ export interface AlarmConfig {
     events: NotifyEvent[];
     persistent: boolean;
   };
+  audio: AudioConfig;
+  push: PushConfig;
 }
 
 export type AlarmState =
@@ -241,6 +286,8 @@ export interface LastCallProfile {
   brightness: number;
   kelvin: number | null;
   actions: Action[];
+  audio: AudioSource;
+  volume: number | null;
   builtin?: boolean;
 }
 
@@ -360,4 +407,14 @@ export function subscribeAlarms(hass: HomeAssistant, listener: Listener): () => 
       unsub.then((fn) => fn()).catch(() => undefined);
     }
   };
+}
+
+export const maSearch = (hass: HomeAssistant, query: string, mediaType?: string) =>
+  hass.callWS<MaItem[]>({ type: "daybreak/ma_search", query, media_type: mediaType ?? null });
+
+let phonesCache: Promise<Phones> | undefined;
+export function fetchPhones(hass: HomeAssistant): Promise<Phones> {
+  phonesCache ??= hass.callWS<Phones>({ type: "daybreak/phones" });
+  phonesCache.catch(() => (phonesCache = undefined));
+  return phonesCache;
 }
