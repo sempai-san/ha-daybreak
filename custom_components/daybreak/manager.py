@@ -49,7 +49,8 @@ from homeassistant.helpers.target import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import astro
+from . import astro, push
+from .audio import AlarmAudio
 from .const import (
     ACTIVE_STATES,
     DOMAIN,
@@ -148,6 +149,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "de": "Letzter Versuch: niemand hat reagiert.",
     },
     "started": {"en": "Sunrise started.", "de": "Sonnenaufgang gestartet."},
+    "push_ring": {"en": "Good morning! It is {time}.", "de": "Guten Morgen! Es ist {time} Uhr."},
+    "push_snoozed": {"en": "Snoozed until {until}.", "de": "Snooze bis {until} Uhr."},
+    "push_last_call": {
+        "en": "Last call: time to get up!",
+        "de": "Letzter Versuch: Zeit aufzustehen!",
+    },
+    "push_btn_snooze": {"en": "Snooze", "de": "Snooze"},
+    "push_btn_stop": {"en": "Stop", "de": "Stopp"},
     "finished": {"en": "Alarm finished.", "de": "Wecker beendet."},
 }
 
@@ -213,6 +222,8 @@ class AlarmRun:
     lights_off_by_us: bool = False
     failed: set[str] = field(default_factory=set)
     shift: ShiftResult = field(default_factory=ShiftResult)
+    audio: AlarmAudio | None = None
+    audio_timer: CALLBACK_TYPE | None = None
 
     @property
     def lights(self) -> list[str]:
@@ -246,6 +257,9 @@ class AlarmRun:
     def cancel_all(self) -> None:
         self.cancel_timer()
         self.stop_effect()
+        if self.audio_timer:
+            self.audio_timer()
+            self.audio_timer = None
         if self.end_timer:
             self.end_timer()
             self.end_timer = None
@@ -263,6 +277,7 @@ class AlarmRuntime:
     shift_for: datetime | None = None
     next_alarm: datetime | None = None
     trigger_at: datetime | None = None
+    light_at: datetime | None = None
     timer: CALLBACK_TYPE | None = None
     run: AlarmRun | None = None
     off_later: CALLBACK_TYPE | None = None
@@ -319,6 +334,11 @@ class DaybreakManager:
             self._schedule(alarm_id)
         self._unsubs.append(
             self.hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, self._on_core_config_update)
+        )
+        self._unsubs.append(
+            self.hass.bus.async_listen(
+                "mobile_app_notification_action", self._on_notification_action
+            )
         )
         self._unsubs.append(
             async_track_time_interval(self.hass, self._job(self._async_shift_tick), SHIFT_INTERVAL)
@@ -588,9 +608,10 @@ class DaybreakManager:
             "state": self.state(alarm_id),
             "next_alarm": iso(runtime.next_alarm),
             "next_base": iso(runtime.base_time),
-            "next_light_start": iso(runtime.trigger_at),
+            "next_light_start": iso(runtime.light_at),
+            "next_start": iso(runtime.trigger_at),
             # Kept for 0.1 cards.
-            "next_sunrise": iso(runtime.trigger_at),
+            "next_sunrise": iso(runtime.light_at),
             "shift": runtime.shift.minutes,
             "shift_parts": runtime.shift.parts,
             "run_shift": run.shift.minutes if run else 0,
@@ -648,9 +669,20 @@ class DaybreakManager:
         return self._holidays.get(day, False)
 
     def _lead(self, alarm: dict[str, Any], base: datetime) -> int:
+        """Minutes the light starts before the alarm."""
         if not self._has_target(alarm["light"]["targets"]):
             return 0
         return light_lead_on(alarm, dt_util.as_local(base).date())
+
+    @staticmethod
+    def _audio_on(alarm: dict[str, Any]) -> bool:
+        audio = alarm["audio"]
+        return alarm["kind"] == "wake" and audio["enabled"] and bool(audio["players"])
+
+    def _trigger_lead(self, alarm: dict[str, Any], base: datetime) -> int:
+        """Minutes the run starts before the alarm (light or music, whichever is first)."""
+        audio = alarm["audio"]["lead"] if self._audio_on(alarm) else 0
+        return max(self._lead(alarm, base), audio)
 
     @staticmethod
     def _has_target(target: dict[str, Any]) -> bool:
@@ -692,16 +724,19 @@ class DaybreakManager:
             if (
                 base
                 and self._has_shift_rules(alarm)
-                and base - timedelta(minutes=self._lead(alarm, base)) - SHIFT_LOOKAHEAD <= now
+                and base - timedelta(minutes=self._trigger_lead(alarm, base)) - SHIFT_LOOKAHEAD
+                <= now
             ):
                 self.hass.async_create_task(self._async_evaluate_shift(alarm_id), eager_start=False)
         runtime.next_alarm = None
         runtime.trigger_at = None
+        runtime.light_at = None
 
         if base:
             when = base - timedelta(minutes=runtime.shift.minutes)
-            lead = timedelta(minutes=self._lead(alarm, base))
+            lead = timedelta(minutes=self._trigger_lead(alarm, base))
             runtime.next_alarm = when
+            runtime.light_at = when - timedelta(minutes=self._lead(alarm, base))
             trigger_at = when - lead
             runtime.trigger_at = trigger_at
             if not (runtime.run and not runtime.run.test):
@@ -769,7 +804,7 @@ class DaybreakManager:
             base = run.base_time if run else runtime.base_time
             if not base:
                 continue
-            if base - timedelta(minutes=self._lead(alarm, base)) - SHIFT_LOOKAHEAD > now:
+            if base - timedelta(minutes=self._trigger_lead(alarm, base)) - SHIFT_LOOKAHEAD > now:
                 continue
             await self._async_evaluate_shift(alarm_id)
 
@@ -1003,6 +1038,24 @@ class DaybreakManager:
                 )
             )
 
+        if self._audio_on(alarm):
+            run.audio = AlarmAudio(
+                self.hass,
+                alarm["audio"],
+                run.context,
+                self._variables(alarm_id, run),
+                partial(self._on_speaker_button, alarm_id),
+            )
+            audio_at = alarm_time - timedelta(minutes=alarm["audio"]["lead"])
+            if test:
+                audio_at = max(light_start, alarm_time - timedelta(seconds=20))
+            if audio_at <= now:
+                self.hass.async_create_task(run.audio.async_start(), eager_start=False)
+            else:
+                run.audio_timer = async_track_point_in_utc_time(
+                    self.hass, self._job(self._async_audio_start, alarm_id), audio_at
+                )
+
         if alarm_time <= now:
             await self._async_ring(alarm_id)
             return
@@ -1017,6 +1070,41 @@ class DaybreakManager:
             )
             return
         await self._async_step(alarm_id)
+
+    async def _async_audio_start(self, alarm_id: str) -> None:
+        runtime = self._runtime.get(alarm_id)
+        if runtime and (run := runtime.run) and run.audio:
+            run.audio_timer = None
+            await run.audio.async_start()
+
+    def _variables(self, alarm_id: str, run: AlarmRun) -> dict[str, Any]:
+        """Template variables for announcements."""
+        alarm = self.alarms[alarm_id]
+        weather = self.settings["weather_entity"]
+        state = self.hass.states.get(weather) if weather else None
+        return {
+            "alarm_id": alarm_id,
+            "name": alarm["name"],
+            "time": dt_util.as_local(run.alarm_time).strftime("%H:%M"),
+            "weather": state.state if state else None,
+            "temperature": state.attributes.get("temperature") if state else None,
+            "shift": run.shift.minutes,
+            "test": run.test,
+        }
+
+    @callback
+    def _on_speaker_button(self, alarm_id: str) -> None:
+        """Pause pressed on the speaker: snooze, or stop during the last call."""
+        runtime = self._runtime.get(alarm_id)
+        if not runtime or not (run := runtime.run):
+            return
+        if run.last_call_started:
+            self._end_run(alarm_id, END_STOPPED)
+        elif run.ring_started:
+            self.hass.async_create_task(self.async_snooze(alarm_id), eager_start=False)
+        elif run.audio:
+            # Before the alarm time: just keep the music quiet.
+            self.hass.async_create_task(run.audio.async_pause(), eager_start=False)
 
     def _light_groups(
         self, alarm: dict[str, Any], light_start: datetime, alarm_time: datetime
@@ -1097,6 +1185,12 @@ class DaybreakManager:
         now = dt_util.utcnow()
         if now >= run.alarm_time:
             await self._async_ring(alarm_id)
+            return
+        if not run.anchor_time and now < run.light_start:
+            # Music starts earlier than the light: wait for the light start.
+            run.timer = async_track_point_in_utc_time(
+                self.hass, self._job(self._async_step, alarm_id), run.light_start
+            )
             return
 
         step = float(min((g.settings["step_seconds"] for g in run.groups), default=15))
@@ -1250,6 +1344,9 @@ class DaybreakManager:
             self._async_run_actions(alarm_id, run, "wake")
         await self._async_apply(run, 1.0, transition=1)
         self._start_effect(alarm_id, run)
+        if run.audio:
+            self.hass.async_create_task(run.audio.async_ring(), eager_start=False)
+        self._async_phone(alarm_id, run, "push_ring", buttons=("snooze", "stop"))
         self._fire(EVENT_ALARM_RINGING, alarm_id, {"after_snooze": was_snoozed})
         self._notify(alarm_id)
 
@@ -1335,6 +1432,15 @@ class DaybreakManager:
                 run, [(g, command) for g in run.groups], transition=1, lights=lights
             )
 
+        if run.audio:
+            self.hass.async_create_task(run.audio.async_last_call(profile), eager_start=False)
+        self._async_phone(
+            alarm_id,
+            run,
+            "push_last_call",
+            buttons=("stop",),
+            critical=alarm["push"]["critical_last_call"],
+        )
         self._fire(EVENT_LAST_CALL, alarm_id, {"profile": profile["id"]})
         self._async_send_message(alarm_id, "last_call")
         if profile["actions"]:
@@ -1471,6 +1577,15 @@ class DaybreakManager:
                 {"snooze_until": run.snooze_until.isoformat(), "snoozes": run.snoozes},
             )
             self._async_run_actions(target, run, "snooze")
+            if run.audio:
+                await run.audio.async_pause()
+            self._async_phone(
+                target,
+                run,
+                "push_snoozed",
+                buttons=("stop",),
+                until=dt_util.as_local(run.snooze_until).strftime("%H:%M"),
+            )
             self._notify(target)
 
     async def async_stop(self, alarm_id: str | None = None) -> None:
@@ -1537,6 +1652,10 @@ class DaybreakManager:
         run.cancel_all()
         runtime.run = None
         alarm = self.alarms[alarm_id]
+        if run.audio:
+            self.hass.async_create_task(run.audio.async_stop(), eager_start=False)
+        if run.ring_started or run.last_call_started:
+            self.hass.async_create_task(push.async_clear(self.hass, alarm), eager_start=False)
         for script in run.scripts:
             if script.is_running:
                 self.hass.async_create_task(script.async_stop())
@@ -1585,6 +1704,54 @@ class DaybreakManager:
         await self._async_lights_off(run, lights)
 
     # ---------------------------------------------------------- notifications
+
+    @callback
+    def _async_phone(
+        self,
+        alarm_id: str,
+        run: AlarmRun,
+        key: str,
+        *,
+        buttons: tuple[str, ...],
+        critical: bool = False,
+        **values: Any,
+    ) -> None:
+        """Phone notification with Snooze/Stop buttons."""
+        alarm = self.alarms[alarm_id]
+        if alarm["kind"] != "wake" or not push.targets(self.hass, alarm):
+            return
+        lang = "de" if (self.hass.config.language or "").startswith("de") else "en"
+        labels = {
+            "snooze": (push.ACTION_SNOOZE, _MESSAGES["push_btn_snooze"][lang]),
+            "stop": (push.ACTION_STOP, _MESSAGES["push_btn_stop"][lang]),
+        }
+        message = _MESSAGES[key][lang].format(
+            time=dt_util.as_local(run.alarm_time).strftime("%H:%M"), **values
+        )
+        self.hass.async_create_task(
+            push.async_send(
+                self.hass,
+                alarm,
+                f"DayBreak - {alarm['name']}",
+                message,
+                buttons=[labels[b] for b in buttons],
+                critical=critical,
+                context=run.context,
+            ),
+            eager_start=False,
+        )
+
+    @callback
+    def _on_notification_action(self, event: Event) -> None:
+        """Snooze/Stop tapped in a phone notification."""
+        parsed = push.parse_action(str(event.data.get("action", "")))
+        if not parsed or parsed[1] not in self.alarms:
+            return
+        kind, alarm_id = parsed
+        if kind == "snooze":
+            self.hass.async_create_task(self.async_snooze(alarm_id), eager_start=False)
+        else:
+            self.hass.async_create_task(self.async_stop(alarm_id), eager_start=False)
 
     @callback
     def _async_send_message(

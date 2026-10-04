@@ -305,6 +305,58 @@ FALLBACK_SCHEMA = vol.Schema(
     }
 )
 
+MEDIA_TYPES = ["playlist", "radio", "album", "track", "artist", "podcast", "audiobook"]
+SOURCE_TYPES = ["none", "music_assistant", "url"]
+
+SOURCE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("type", default="none"): vol.In(SOURCE_TYPES),
+        # Music Assistant: uri or name plus media type.
+        vol.Optional("media_id", default=""): cv.string,
+        vol.Optional("media_type", default="playlist"): vol.In(MEDIA_TYPES),
+        # Display name from the search, for the UI only.
+        vol.Optional("name", default=""): cv.string,
+        vol.Optional("url", default=""): cv.string,
+    }
+)
+
+TTS_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=False): cv.boolean,
+        # tts.* entity; None = first available.
+        vol.Optional("engine", default=None): vol.Any(None, cv.entity_id),
+        vol.Optional("message", default=""): cv.string,
+    }
+)
+
+AUDIO_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=False): cv.boolean,
+        vol.Optional("players", default=list): vol.All(cv.ensure_list, [cv.entity_id]),
+        vol.Optional("source", default=dict): SOURCE_SCHEMA,
+        vol.Optional("tts", default=dict): TTS_SCHEMA,
+        # Music starts this many minutes before the alarm time.
+        vol.Optional("lead", default=5): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
+        vol.Optional("volume", default=lambda: [5, 35]): _pair(PERCENT),
+        vol.Optional("ramp", default=5): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
+        vol.Optional("pause_on_snooze", default=True): cv.boolean,
+        # Pause on the speaker itself: snooze (stop during the last call).
+        vol.Optional("button", default=True): cv.boolean,
+        vol.Optional("restore_volume", default=True): cv.boolean,
+    }
+)
+
+PUSH_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=True): cv.boolean,
+        # Phones of the owners are found automatically.
+        vol.Optional("owners", default=True): cv.boolean,
+        # Additional notify services, e.g. "mobile_app_ipad".
+        vol.Optional("targets", default=list): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("critical_last_call", default=False): cv.boolean,
+    }
+)
+
 ONCE_SCHEMA = vol.Schema(
     {
         vol.Required("date"): _date,
@@ -334,6 +386,8 @@ ALARM_SCHEMA = vol.Schema(
         vol.Optional("light", default=dict): LIGHT_SCHEMA,
         vol.Optional("actions", default=dict): ACTIONS_SCHEMA,
         vol.Optional("fallback", default=dict): FALLBACK_SCHEMA,
+        vol.Optional("audio", default=dict): AUDIO_SCHEMA,
+        vol.Optional("push", default=dict): PUSH_SCHEMA,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -366,6 +420,9 @@ LAST_CALL_PROFILE_SCHEMA = vol.Schema(
         vol.Optional("brightness", default=100): PERCENT,
         vol.Optional("kelvin", default=5000): vol.Any(None, KELVIN),
         vol.Optional("actions", default=list): _actions,
+        # Own audio for the last call; type "none" = keep the alarm's audio.
+        vol.Optional("audio", default=dict): SOURCE_SCHEMA,
+        vol.Optional("volume", default=None): vol.Any(None, PERCENT),
     },
     extra=vol.REMOVE_EXTRA,
 )
