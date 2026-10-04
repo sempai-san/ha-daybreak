@@ -115,6 +115,8 @@ export interface AudioConfig {
   lead: number;
   volume: [number, number];
   ramp: number;
+  /** Points between start and end volume: [share of the ramp 0..1, volume %]. */
+  curve: [number, number][];
   pause_on_snooze: boolean;
   button: boolean;
   restore_volume: boolean;
@@ -201,6 +203,9 @@ export interface AlarmConfig {
     profile: string | null;
     settings: LightSettings;
     overrides: LightOverride[];
+    /** Own start per lamp in minutes before the alarm (missing = with the light start). */
+    per_lamp_start: boolean;
+    starts: Record<string, number>;
   };
   actions: Record<Phase, Action[]>;
   fallback: {
@@ -303,6 +308,7 @@ export const MODE_FEATURES = [
   "calendar",
   "conditions",
   "overrides",
+  "lamp_start",
   "audio",
   "tts",
   "push",
@@ -312,7 +318,7 @@ export const MODE_FEATURES = [
 ] as const;
 export type ModeFeature = (typeof MODE_FEATURES)[number];
 export const DEFAULT_MODE_HIDDEN: Record<"simple" | "normal", ModeFeature[]> = {
-  simple: ["sun", "pattern", "week_cycle", "calendar", "overrides", "tts", "actions", "none"],
+  simple: ["sun", "pattern", "week_cycle", "calendar", "overrides", "lamp_start", "tts", "actions", "none"],
   normal: [],
 };
 

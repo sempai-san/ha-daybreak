@@ -82,6 +82,7 @@ from .const import (
     signal_alarm_updated,
 )
 from .curve import Capabilities, LightCommand, command_at, to_brightness_255
+from .devices import find_device
 from .models import (
     BUILTIN_LAST_CALL_PROFILES,
     BUILTIN_LIGHT_PROFILES,
@@ -187,6 +188,8 @@ class LightGroup:
 
     lights: list[str]
     settings: dict[str, Any]
+    # Own start in minutes before the alarm time (None = from the settings).
+    before: int | None = None
     # Fraction of the ramp that passes before this group starts.
     offset: float = 0.0
     caps: dict[str, Capabilities] = field(default_factory=dict)
@@ -439,15 +442,13 @@ class DaybreakManager:
         del self.alarms[alarm_id]
         self._handled.pop(alarm_id, None)
         self._save()
-        dev_reg = dr.async_get(self.hass)
-        if device := dev_reg.async_get_device(identifiers={(DOMAIN, alarm_id)}):
-            dev_reg.async_remove_device(device.id)
+        if device := find_device(self.hass, (DOMAIN, alarm_id)):
+            dr.async_get(self.hass).async_remove_device(device.id)
         async_dispatcher_send(self.hass, SIGNAL_ALARMS_CHANGED)
 
     def _rename_device(self, alarm_id: str, name: str) -> None:
-        dev_reg = dr.async_get(self.hass)
-        if device := dev_reg.async_get_device(identifiers={(DOMAIN, alarm_id)}):
-            dev_reg.async_update_device(device.id, name=name)
+        if device := find_device(self.hass, (DOMAIN, alarm_id)):
+            dr.async_get(self.hass).async_update_device(device.id, name=name)
 
     async def async_set_once(
         self, alarm_id: str, day: str, at: str, light_lead: int | None = None
@@ -1130,6 +1131,17 @@ class DaybreakManager:
         if rest:
             groups.insert(0, LightGroup(lights=rest, settings=own))
 
+        if light["per_lamp_start"]:
+            # One group per lamp, each with its own start.
+            groups = [
+                LightGroup(
+                    lights=[entity_id],
+                    settings=group.settings,
+                    before=light["starts"].get(entity_id),
+                )
+                for group in groups
+                for entity_id in group.lights
+            ]
         total = (alarm_time - light_start).total_seconds() / 60
         missing: list[str] = []
         replacements = alarm["fallback"]["lights"]
@@ -1144,7 +1156,10 @@ class DaybreakManager:
                         continue
                 resolved.append(entity_id)
             group.lights = sorted(set(resolved))
-            offset = group.settings["start_offset"]
+            if group.before is not None:
+                offset = max(0.0, total - group.before)
+            else:
+                offset = group.settings["start_offset"]
             group.offset = min(0.95, offset / total) if total > 0 and offset else 0.0
             for entity_id in group.lights:
                 group.caps[entity_id] = self._caps(entity_id)

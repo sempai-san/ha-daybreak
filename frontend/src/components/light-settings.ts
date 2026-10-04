@@ -16,7 +16,7 @@ import {
   rampGradient,
 } from "../model";
 import { shared } from "../styles";
-import { clamp, fireEvent, formatClock, toHHMM, toMin } from "../util";
+import { clamp, fireEvent, formatClock, toHHMM, toMin, define } from "../util";
 
 const W = 600;
 const H = 180;
@@ -808,4 +808,4 @@ export class DbLightSettings extends LitElement {
   }
 }
 
-customElements.define("db-light-settings", DbLightSettings);
+define("db-light-settings", DbLightSettings);

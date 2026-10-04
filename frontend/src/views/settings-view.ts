@@ -19,7 +19,7 @@ import {
 } from "../api";
 import { errorText, t, type StringKey } from "../i18n";
 import { shared } from "../styles";
-import { clamp, fireEvent, friendlyName } from "../util";
+import { clamp, fireEvent, friendlyName, define } from "../util";
 import "../components/entity-picker";
 
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
@@ -325,4 +325,4 @@ export class DbSettingsView extends LitElement {
   }
 }
 
-customElements.define("db-settings-view", DbSettingsView);
+define("db-settings-view", DbSettingsView);

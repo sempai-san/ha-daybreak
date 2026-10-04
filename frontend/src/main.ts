@@ -1,4 +1,5 @@
 // Entry point: registers the sidebar panel and the Lovelace cards.
+import "./guard"; // must stay first
 import { FRONTEND_VERSION } from "./api";
 import { t } from "./i18n";
 import "./panel";

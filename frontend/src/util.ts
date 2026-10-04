@@ -175,3 +175,8 @@ export function fireEvent(node: HTMLElement, type: string, detail: unknown = {})
 }
 
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Define a custom element unless this page already has it (bundle loaded twice). */
+export function define(name: string, element: CustomElementConstructor): void {
+  if (!customElements.get(name)) customElements.define(name, element);
+}

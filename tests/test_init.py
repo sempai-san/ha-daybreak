@@ -215,6 +215,58 @@ async def test_overrides_and_offsets(
     assert "color_temp_kelvin" in turn_on[0].data
 
 
+async def test_per_lamp_start(
+    hass: HomeAssistant, manager, light_calls, freezer: FrozenDateTimeFactory
+) -> None:
+    """With per-lamp start each lamp begins at its own time, sharing the settings."""
+    turn_on, _ = light_calls
+    hass.states.async_set("light.lamp", STATE_OFF, {"supported_color_modes": ["color_temp"]})
+    _monday(freezer, 6, 0)
+    await manager.async_create(
+        {
+            "wake": {"time": "06:30"},
+            "repeat": WEEKDAYS,
+            "light_lead": 20,
+            "light": {
+                "targets": {"entity_id": [LIGHT, "light.lamp"]},
+                "settings": {"curve": "linear", "brightness": [10, 100]},
+                "per_lamp_start": True,
+                "starts": {"light.lamp": 5},
+            },
+        }
+    )
+    await advance(hass, freezer, timedelta(minutes=10, seconds=20))
+    assert turn_on
+    assert all(call.data["entity_id"] == [LIGHT] for call in turn_on)
+    # 06:24: the lamp starts at 06:10 + 15 min.
+    await advance(hass, freezer, timedelta(minutes=14))
+    assert not any("light.lamp" in c.data["entity_id"] for c in turn_on)
+    await advance(hass, freezer, timedelta(minutes=2))
+    assert any("light.lamp" in c.data["entity_id"] for c in turn_on)
+
+
+async def test_starts_ignored_without_per_lamp_start(
+    hass: HomeAssistant, manager, light_calls, freezer: FrozenDateTimeFactory
+) -> None:
+    turn_on, _ = light_calls
+    hass.states.async_set("light.lamp", STATE_OFF, {"supported_color_modes": ["color_temp"]})
+    _monday(freezer, 6, 0)
+    await manager.async_create(
+        {
+            "wake": {"time": "06:30"},
+            "repeat": WEEKDAYS,
+            "light_lead": 20,
+            "light": {
+                "targets": {"entity_id": [LIGHT, "light.lamp"]},
+                "settings": {"curve": "linear"},
+                "starts": {"light.lamp": 15},
+            },
+        }
+    )
+    await advance(hass, freezer, timedelta(minutes=10, seconds=20))
+    assert any("light.lamp" in c.data["entity_id"] for c in turn_on)
+
+
 async def test_sleep_light_fades_out(
     hass: HomeAssistant, manager, light_calls, freezer: FrozenDateTimeFactory
 ) -> None:

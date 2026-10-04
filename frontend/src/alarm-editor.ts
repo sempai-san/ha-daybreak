@@ -38,8 +38,10 @@ import {
   repeatSummary,
   toHHMM,
   toMin,
+  define,
 } from "./util";
 import "./components/time-line";
+import type { LampStart } from "./components/time-line";
 import "./components/sun-wake";
 import "./components/shift-line";
 import "./components/light-settings";
@@ -660,6 +662,8 @@ export class DaybreakAlarmEditor extends LitElement {
     const settingsLight = this._effectiveSettings();
     const startLabel = d.kind === "sleep" ? t(hass, "tl_sleep_start") : d.kind === "kids" ? t(hass, "tl_kids_start") : "";
     const wakeLabel = d.kind === "sleep" ? t(hass, "tl_sleep_end") : d.kind === "kids" ? t(hass, "tl_kids_end") : "";
+    const showLampStart = isWake && this._lights.length > 1 && this._has("lamp_start", d.light.per_lamp_start);
+    const perLamp = showLampStart && d.light.per_lamp_start;
     return html`
       ${this._has("sun", d.wake.type === "sun")
         ? html`<div class="seg" role="group">
@@ -690,6 +694,9 @@ export class DaybreakAlarmEditor extends LitElement {
           .startLabel=${startLabel}
           .wakeLabel=${wakeLabel}
           .gradient=${rampGradient(settingsLight)}
+          .lamps=${perLamp ? this._lampStarts() : []}
+          @lamp-start-change=${(ev: CustomEvent) =>
+            this._sub("light", { starts: { ...d.light.starts, [ev.detail.entity]: ev.detail.before } })}
           @timeline-change=${(ev: CustomEvent) => {
             const { time, lead, count, lcDuration } = ev.detail;
             this._patch({
@@ -700,6 +707,12 @@ export class DaybreakAlarmEditor extends LitElement {
             });
           }}
         ></db-time-line>
+        ${showLampStart
+          ? html`<div class="row" style="margin-top:10px">
+              <div class="grow"><div>${t(hass, "lamp_start_on")}</div><div class="muted">${t(hass, "lamp_start_on_d")}</div></div>
+              ${this._toggle(d.light.per_lamp_start, (v) => this._sub("light", { per_lamp_start: v }), t(hass, "lamp_start_on"))}
+            </div>`
+          : nothing}
       </div>
       ${isWake ? this._snoozeChoice() : nothing}
       ${isWake ? this._lastCallRow() : nothing}
@@ -1212,6 +1225,8 @@ export class DaybreakAlarmEditor extends LitElement {
     const colorLamps = lights.filter((e) => capsOf(hass?.states[e]?.attributes.supported_color_modes).color);
     const plainLamps = lights.filter((e) => !colorLamps.includes(e));
     const start = toHHMM(toMin(this._wakeTime) - d.light_lead);
+    const own = (e: string) => d.light.overrides.some((o) => o.target.entity_id?.length === 1 && o.target.entity_id[0] === e);
+    const allOwn = lights.length > 1 && lights.every(own);
     return html`
       <div class="lbl">${t(hass, "targets")}</div>
       ${this._picker(["light"], lights, (v: string[]) => this._sub("light", { targets: { entity_id: v ?? [] } }), {
@@ -1221,7 +1236,9 @@ export class DaybreakAlarmEditor extends LitElement {
       })}
       ${lights.length ? nothing : html`<div class="muted">${t(hass, "no_lights")}</div>`}
       <div class="divider"></div>
-      <div class="lbl">${this._simple ? t(hass, "light_settings") : t(hass, "light_common")}</div>
+      ${allOwn
+        ? html`<div class="muted">${t(hass, "all_own_settings")}</div>`
+        : html`<div class="lbl">${this._simple ? t(hass, "light_settings") : t(hass, "light_common")}</div>
       ${!this._simple || profile ? this._profileRow(profile) : nothing}
       <db-light-settings
         .hass=${hass}
@@ -1234,8 +1251,8 @@ export class DaybreakAlarmEditor extends LitElement {
         .plainLamps=${plainLamps.map((e) => friendlyName(hass, e))}
         .showFine=${d.kind === "wake"}
         @settings-change=${(ev: CustomEvent) => this._sub("light", { settings: ev.detail })}
-      ></db-light-settings>
-      ${this._has("overrides") && lights.length > 1 ? this._overrides(lights, start) : nothing}
+      ></db-light-settings>`}
+      ${(this._has("overrides") || allOwn) && lights.length > 1 ? this._overrides(lights, start) : nothing}
     `;
   }
 
@@ -1274,6 +1291,23 @@ export class DaybreakAlarmEditor extends LitElement {
           }}>${t(hass, "customize")}</button>`
         : nothing}
     </div>`;
+  }
+
+  /** Settings a lamp runs with: its override (or that override's profile), else the common ones. */
+  private _lampSettings(entity: string): LightSettings {
+    const ov = this.d.light.overrides.find((o) => o.target.entity_id?.length === 1 && o.target.entity_id[0] === entity);
+    if (!ov) return this._effectiveSettings();
+    return this._profile(ov.profile)?.settings ?? ov.settings;
+  }
+
+  private _lampStarts(): LampStart[] {
+    const hass = this.hass;
+    return this._lights.map((e) => ({
+      entity: e,
+      name: friendlyName(hass, e),
+      before: this.d.light.starts[e] ?? this.d.light_lead,
+      gradient: rampGradient(this._lampSettings(e)),
+    }));
   }
 
   private _overrides(lights: string[], start: string) {
@@ -1361,7 +1395,7 @@ export class DaybreakAlarmEditor extends LitElement {
             <db-audio-source .hass=${hass} .source=${au.source} .hasMusicAssistant=${this._phones?.music_assistant ?? true}
               @source-change=${(ev: CustomEvent) => set({ source: ev.detail })}></db-audio-source>
             <div class="lbl">${t(hass, "audio_volume")}</div>
-            <db-audio-line .hass=${hass} .time=${this._wakeTime} .lead=${au.lead} .ramp=${au.ramp} .volume=${au.volume}
+            <db-audio-line .hass=${hass} .time=${this._wakeTime} .lead=${au.lead} .ramp=${au.ramp} .volume=${au.volume} .curve=${au.curve ?? []}
               .simple=${this._simple} @audio-change=${(ev: CustomEvent) => set(ev.detail)}></db-audio-line>
             ${this._has("tts", au.tts.enabled)
               ? html`<div class="lbl">${t(hass, "tts_title")}</div>
@@ -1614,6 +1648,6 @@ export class DaybreakAlarmEditor extends LitElement {
   }
 }
 
-customElements.define("daybreak-alarm-editor", DaybreakAlarmEditor);
+define("daybreak-alarm-editor", DaybreakAlarmEditor);
 
 export { defaultSettings };

@@ -12,7 +12,7 @@ import {
 import { errorText, t, type StringKey } from "../i18n";
 import { curvePoints, defaultSettings, levelAt, levelCss, rampGradient } from "../model";
 import { shared } from "../styles";
-import { fireEvent, formatClock, toHHMM } from "../util";
+import { fireEvent, formatClock, toHHMM, define } from "../util";
 import "../components/light-settings";
 
 /** Light profiles: list, read-only detail view and editor with lock rules. */
@@ -363,4 +363,4 @@ export class DbProfilesView extends LitElement {
   }
 }
 
-customElements.define("db-profiles-view", DbProfilesView);
+define("db-profiles-view", DbProfilesView);

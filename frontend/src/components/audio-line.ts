@@ -1,21 +1,37 @@
-import { LitElement, css, html, svg } from "lit";
+import { LitElement, css, html, nothing, svg } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { HomeAssistant } from "../api";
 import { t } from "../i18n";
+import { curveValue } from "../model";
 import { shared } from "../styles";
-import { clamp, fireEvent, formatClock, toHHMM, toMin } from "../util";
+import { clamp, define, fireEvent, formatClock, toHHMM, toMin } from "../util";
 
 const W = 600;
 const H = 150;
 const PAD_X = 12;
 const PAD_TOP = 12;
 const PAD_BOTTOM = 26;
+const MAX_POINTS = 8;
+
+/** A point of the volume curve: minutes relative to the alarm, volume in %. */
+interface Pt {
+  m: number;
+  v: number;
+}
+
+export interface AudioChange {
+  lead: number;
+  ramp: number;
+  volume: [number, number];
+  curve: [number, number][];
+}
 
 /**
- * Volume over time on the alarm's clock: music starts at a quiet volume,
- * gets louder over the ramp and keeps the end volume. Two handles can be
- * dragged in both directions (time and volume); the values sit as small
- * editable chips right above them. Emits "audio-change" {lead, ramp, volume}.
+ * Volume over time on the alarm's clock. The music starts quietly, follows a
+ * smooth curve through any number of points and keeps the end volume. The
+ * wake time always sits in the middle. Points can be dragged in time and
+ * volume; the selected point shows its time and volume as editable fields.
+ * Emits "audio-change" with {lead, ramp, volume, curve}.
  */
 export class DbAudioLine extends LitElement {
   @property({ attribute: false }) hass?: HomeAssistant;
@@ -23,9 +39,13 @@ export class DbAudioLine extends LitElement {
   @property({ type: Number }) lead = 5;
   @property({ type: Number }) ramp = 5;
   @property({ attribute: false }) volume: [number, number] = [5, 35];
+  @property({ attribute: false }) curve: [number, number][] = [];
   @property({ type: Boolean }) simple = false;
-  @state() private _drag?: "start" | "end";
-  private _frozen?: [number, number];
+  @state() private _drag?: number;
+  @state() private _sel = 1;
+  /** Half width (minutes) frozen while dragging; grows when a point reaches the edge. */
+  private _frozen?: number;
+  private _grown = 0;
 
   static styles = [
     shared,
@@ -76,71 +96,108 @@ export class DbAudioLine extends LitElement {
       .pill input[type="time"]::-webkit-calendar-picker-indicator {
         display: none;
       }
-      .legend {
+      .tools {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px 16px;
-        font-size: 12px;
-        color: var(--db-muted);
+        align-items: center;
+        gap: 8px;
         margin-top: 6px;
+      }
+      .tools .muted {
+        font-size: 12px;
       }
     `,
   ];
 
-  /** Visible range in minutes relative to the alarm: [left, right]. */
-  private get _range(): [number, number] {
+  /** All points: start, the curve points, end. */
+  private get _pts(): Pt[] {
+    const m0 = -this.lead;
+    return [
+      { m: m0, v: this.volume[0] },
+      ...this.curve.map(([x, y]) => ({ m: m0 + x * this.ramp, v: y })),
+      { m: m0 + this.ramp, v: this.volume[1] },
+    ];
+  }
+
+  /** Minutes from the wake line to each edge; the wake time stays centred. */
+  private get _half() {
     if (this._frozen) return this._frozen;
-    const rampEnd = -this.lead + this.ramp;
-    const left = -Math.max(10, Math.ceil((this.lead + 5) / 5) * 5);
-    const right = Math.max(5, Math.ceil((rampEnd + 4) / 5) * 5);
-    return [left, right];
+    const reach = Math.max(this.lead, Math.abs(this.ramp - this.lead));
+    return Math.max(10, Math.ceil((reach + 3) / 5) * 5);
   }
 
   private _x(m: number) {
-    const [lo, hi] = this._range;
-    return PAD_X + ((clamp(m, lo, hi) - lo) / (hi - lo)) * (W - 2 * PAD_X);
+    const h = this._half;
+    return PAD_X + ((clamp(m, -h, h) + h) / (2 * h)) * (W - 2 * PAD_X);
   }
 
   private _y(v: number) {
     return PAD_TOP + (1 - clamp(v, 0, 100) / 100) * (H - PAD_TOP - PAD_BOTTOM);
   }
 
-  private _emit(change: { lead?: number; ramp?: number; volume?: [number, number] }) {
-    fireEvent(this, "audio-change", { lead: this.lead, ramp: this.ramp, volume: this.volume, ...change });
+  /** Volume (%) at a minute, smooth through the points like the backend. */
+  private _volAt(m: number, pts = this._pts): number {
+    const m0 = pts[0].m;
+    const span = pts[pts.length - 1].m - m0;
+    if (m <= m0) return pts[0].v;
+    if (span <= 0 || m >= m0 + span) return pts[pts.length - 1].v;
+    return curveValue(pts.map((p) => [(p.m - m0) / span, p.v / 100]), (m - m0) / span) * 100;
   }
 
-  private _fromEvent(ev: PointerEvent): { m: number; v: number } {
+  private _emit(pts: Pt[]) {
+    const m0 = pts[0].m;
+    const end = pts[pts.length - 1];
+    const ramp = Math.max(0, end.m - m0);
+    const change: AudioChange = {
+      lead: Math.round(-m0),
+      ramp: Math.round(ramp),
+      volume: [Math.round(pts[0].v), Math.round(end.v)],
+      curve: pts.slice(1, -1).map((p) => [ramp ? Math.round(((p.m - m0) / ramp) * 1000) / 1000 : 0, Math.round(p.v)]),
+    };
+    fireEvent(this, "audio-change", change);
+  }
+
+  /** Move point i to (m, v), keeping the order of the points. */
+  private _set(i: number, m: number | null, v: number | null) {
+    const pts = this._pts.map((p) => ({ ...p }));
+    const last = pts.length - 1;
+    if (m !== null) {
+      const lo = i === 0 ? -60 : pts[i - 1].m;
+      const hi = i === last ? pts[0].m + 60 : pts[i + 1].m;
+      pts[i].m = Math.round(clamp(m, lo, hi));
+      if (i === 0) pts[i].m = Math.min(0, pts[i].m);
+    }
+    if (v !== null && !(this.simple && i === 0)) pts[i].v = Math.round(clamp(v, 0, 100));
+    this._emit(pts);
+  }
+
+  private _fromEvent(ev: PointerEvent): Pt {
     const el = this.shadowRoot!.querySelector("svg") as SVGSVGElement;
     const rect = el.getBoundingClientRect();
     const x = ((ev.clientX - rect.left) / rect.width) * W;
     const y = ((ev.clientY - rect.top) / rect.height) * H;
-    const [lo, hi] = this._range;
+    const h = this._half;
     return {
-      m: lo + ((x - PAD_X) / (W - 2 * PAD_X)) * (hi - lo),
+      m: -h + ((x - PAD_X) / (W - 2 * PAD_X)) * 2 * h,
       v: (1 - (y - PAD_TOP) / (H - PAD_TOP - PAD_BOTTOM)) * 100,
     };
   }
 
-  private _down(which: "start" | "end", ev: PointerEvent) {
-    const [lo, hi] = this._range;
-    this._frozen = [lo - (which === "start" ? 10 : 0), hi + (which === "end" ? 10 : 0)];
-    this._drag = which;
+  private _down(i: number, ev: PointerEvent) {
+    this._frozen = this._half;
+    this._drag = i;
+    this._sel = i;
     (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
   }
 
   private _move(ev: PointerEvent) {
-    if (!this._drag) return;
-    const { m, v } = this._fromEvent(ev);
-    const vol = Math.round(clamp(v, 0, 100));
-    if (this._drag === "start") {
-      const lead = Math.round(clamp(-m, 0, 60));
-      // Keep the end of the ramp where it is.
-      const ramp = clamp(Math.round(this.ramp + (lead - this.lead)), 0, 60);
-      this._emit({ lead, ramp, volume: [this.simple ? this.volume[0] : vol, this.volume[1]] });
-    } else {
-      const ramp = Math.round(clamp(m + this.lead, 0, 60));
-      this._emit({ ramp, volume: [this.volume[0], vol] });
+    if (this._drag === undefined) return;
+    const p = this._fromEvent(ev);
+    if (this._frozen && Math.abs(p.m) > this._frozen - 1 && Date.now() - this._grown > 300) {
+      this._grown = Date.now();
+      this._frozen += 10;
     }
+    this._set(this._drag, p.m, p.v);
   }
 
   private _up() {
@@ -148,54 +205,71 @@ export class DbAudioLine extends LitElement {
     this._frozen = undefined;
   }
 
-  private _pillLeft(x: number) {
-    return `clamp(0px, calc(${(x / W) * 100}% - 60px), calc(100% - 170px))`;
+  private _add() {
+    const pts = this._pts;
+    if (pts.length - 2 >= MAX_POINTS) return;
+    // Into the widest gap, on the current curve, so the sound does not change.
+    let gap = 0;
+    for (let i = 1; i < pts.length - 1; i++) if (pts[i + 1].m - pts[i].m > pts[gap + 1].m - pts[gap].m) gap = i;
+    const m = (pts[gap].m + pts[gap + 1].m) / 2;
+    const next = [...pts.slice(0, gap + 1), { m, v: this._volAt(m, pts) }, ...pts.slice(gap + 1)];
+    this._sel = gap + 1;
+    this._emit(next);
+  }
+
+  private _remove() {
+    const pts = this._pts;
+    if (this._sel <= 0 || this._sel >= pts.length - 1) return;
+    const next = pts.filter((_, i) => i !== this._sel);
+    this._sel = Math.min(this._sel, next.length - 2);
+    this._emit(next);
   }
 
   render() {
     const hass = this.hass;
     const wake = toMin(this.time);
-    const [lo, hi] = this._range;
-    const sx = this._x(-this.lead);
-    const ex = this._x(-this.lead + this.ramp);
-    const sy = this._y(this.volume[0]);
-    const ey = this._y(this.volume[1]);
+    const pts = this._pts;
+    const last = pts.length - 1;
+    const sel = clamp(this._sel, 0, last);
+    const h = this._half;
     const base = this._y(0);
     const wx = this._x(0);
-    const every = hi - lo > 40 ? 10 : 5;
+    const right = this._x(h);
+    // Smooth path from the first to the last point, then flat to the edge.
+    const m0 = pts[0].m;
+    const m1 = pts[last].m;
+    const samples: string[] = [];
+    const n = Math.max(2, Math.min(80, Math.round((m1 - m0) * 4)));
+    for (let k = 0; k <= n; k++) {
+      const m = m0 + ((m1 - m0) * k) / n;
+      samples.push(`${this._x(m).toFixed(1)},${this._y(this._volAt(m, pts)).toFixed(1)}`);
+    }
+    const line = `M${samples.join(" L")} L${right},${this._y(pts[last].v)}`;
+    const area = `M${this._x(m0)},${base} L${samples.join(" L")} L${right},${this._y(pts[last].v)} L${right},${base} Z`;
+    const every = 2 * h > 40 ? 10 : 5;
     const ticks: number[] = [];
-    for (let m = Math.ceil(lo / every) * every; m <= hi; m += every) ticks.push(m);
-    const area = `M${sx},${base} L${sx},${sy} L${ex},${ey} L${this._x(hi)},${ey} L${this._x(hi)},${base} Z`;
-    const line = `M${sx},${sy} L${ex},${ey} L${this._x(hi)},${ey}`;
-    const clock = (m: number) => formatClock(hass, toHHMM(wake + m));
-    const setTime = (value: string, which: "start" | "end") => {
+    for (let m = Math.ceil(-h / every) * every; m <= h; m += every) ticks.push(m);
+    const clock = (m: number) => formatClock(hass, toHHMM(wake + Math.round(m)));
+    const sp = pts[sel];
+    const sx = this._x(sp.m);
+    const label = sel === 0 ? `♪ ${t(hass, "audio_start_at")}` : sel === last ? `🔊 ${t(hass, "audio_loud_at")}` : "•";
+    const setTime = (value: string) => {
       if (!value) return;
       let diff = toMin(value) - wake;
       if (diff > 720) diff -= 1440;
       if (diff < -720) diff += 1440;
-      if (which === "start") {
-        const lead = clamp(-diff, 0, 60);
-        this._emit({ lead, ramp: clamp(this.ramp + (lead - this.lead), 0, 60) });
-      } else {
-        this._emit({ ramp: clamp(diff + this.lead, 0, 60) });
-      }
+      this._set(sel, diff, null);
     };
     return html`<div class="wrap">
-        <div class="pill" style="left:${this._pillLeft(sx)}">
-          ♪
-          <input type="time" .value=${toHHMM(wake - this.lead)} aria-label=${t(hass, "audio_start_at")}
-            @change=${(e: Event) => setTime((e.target as HTMLInputElement).value, "start")} />
-          ${this.simple
-            ? html``
-            : html`<input type="number" min="0" max="100" .value=${String(Math.round(this.volume[0]))} aria-label=${t(hass, "audio_vol_start")}
-                @change=${(e: Event) => this._emit({ volume: [clamp(Number((e.target as HTMLInputElement).value), 0, 100), this.volume[1]] })} />%`}
-        </div>
-        <div class="pill" style="left:${this._pillLeft(ex)};top:${ex - sx < 190 ? "-2px" : "0"};transform:translateY(${ex - sx < 190 ? "-110%" : "0"})">
-          🔊
-          <input type="time" .value=${toHHMM(wake - this.lead + this.ramp)} aria-label=${t(hass, "audio_loud_at")}
-            @change=${(e: Event) => setTime((e.target as HTMLInputElement).value, "end")} />
-          <input type="number" min="0" max="100" .value=${String(Math.round(this.volume[1]))} aria-label=${t(hass, "audio_vol_end")}
-            @change=${(e: Event) => this._emit({ volume: [this.volume[0], clamp(Number((e.target as HTMLInputElement).value), 0, 100)] })} />%
+        <div class="pill" style="left:clamp(0px, calc(${(sx / W) * 100}% - 90px), calc(100% - 230px))">
+          ${label}
+          <input type="time" .value=${toHHMM(wake + Math.round(sp.m))} aria-label=${t(hass, "audio_start_at")}
+            @change=${(e: Event) => setTime((e.target as HTMLInputElement).value)} />
+          ${this.simple && sel === 0
+            ? nothing
+            : html`<input type="number" min="0" max="100" .value=${String(Math.round(sp.v))}
+                  aria-label=${sel === 0 ? t(hass, "audio_vol_start") : t(hass, "audio_vol_end")}
+                  @change=${(e: Event) => this._set(sel, null, Number((e.target as HTMLInputElement).value))} />%`}
         </div>
         <svg viewBox="0 0 ${W} ${H}" @pointermove=${this._move} @pointerup=${this._up} @pointercancel=${this._up}>
           ${[25, 50, 75, 100].map(
@@ -208,24 +282,24 @@ export class DbAudioLine extends LitElement {
           <text x=${wx + 4} y=${PAD_TOP + 4} font-size="11" fill="var(--db-text)">${t(hass, "tl_wake")}</text>
           ${ticks.map(
             (m) => svg`<text x=${this._x(m)} y=${H - 8} font-size="10" fill="var(--db-muted)"
-              text-anchor=${m === lo ? "start" : m === hi ? "end" : "middle"}>${clock(m)}</text>`,
+              text-anchor=${m <= -h ? "start" : m >= h ? "end" : "middle"}>${clock(m)}</text>`,
           )}
-          <g style="cursor:grab" @pointerdown=${(e: PointerEvent) => this._down("start", e)}>
-            <circle cx=${sx} cy=${sy} r="20" fill="transparent"/>
-            <circle cx=${sx} cy=${sy} r="8" fill="#fff" stroke="var(--db-accent)" stroke-width="3"/>
-          </g>
-          <g style="cursor:grab" @pointerdown=${(e: PointerEvent) => this._down("end", e)}>
-            <circle cx=${ex} cy=${ey} r="20" fill="transparent"/>
-            <circle cx=${ex} cy=${ey} r="8" fill="#fff" stroke="var(--db-accent-strong)" stroke-width="3"/>
-          </g>
+          ${pts.map(
+            (p, i) => svg`<g style="cursor:grab" @pointerdown=${(e: PointerEvent) => this._down(i, e)}>
+              <circle cx=${this._x(p.m)} cy=${this._y(p.v)} r="20" fill="transparent"/>
+              <circle cx=${this._x(p.m)} cy=${this._y(p.v)} r=${i === sel ? 9 : i === 0 || i === last ? 8 : 6}
+                fill=${i === sel ? "var(--db-accent)" : "#fff"}
+                stroke=${i === last ? "var(--db-accent-strong)" : "var(--db-accent)"} stroke-width="3"/>
+            </g>`,
+          )}
         </svg>
       </div>
-      <div class="legend">
-        <span>♪ ${t(hass, "audio_start_at")}: ${clock(-this.lead)}</span>
-        <span>🔊 ${t(hass, "audio_loud_at")}: ${clock(-this.lead + this.ramp)}</span>
-        <span>${t(hass, "audio_drag_hint")}</span>
+      <div class="tools">
+        <button class="btn" ?disabled=${last - 1 >= MAX_POINTS} @click=${this._add}>${t(hass, "audio_add_point")}</button>
+        <button class="btn" ?disabled=${sel === 0 || sel === last} @click=${this._remove}>${t(hass, "audio_remove_point")}</button>
+        <span class="muted">${t(hass, "audio_point_hint")}</span>
       </div>`;
   }
 }
 
-customElements.define("db-audio-line", DbAudioLine);
+define("db-audio-line", DbAudioLine);

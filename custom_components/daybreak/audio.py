@@ -23,6 +23,8 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.template import Template
 from homeassistant.util import dt as dt_util
 
+from .curve import curve_value
+
 _LOGGER = logging.getLogger(__name__)
 
 RAMP_INTERVAL = timedelta(seconds=10)
@@ -128,7 +130,7 @@ class AlarmAudio:
         self.should_play = True
         await self._play_source(self._source)
         self._ramp_start = dt_util.utcnow()
-        if self._ramp_seconds and self._ramp_to != self._ramp_from:
+        if self._ramp_seconds and (self._ramp_to != self._ramp_from or self.audio["curve"]):
             self._ramp_unsub = async_track_time_interval(self.hass, self._ramp_tick, RAMP_INTERVAL)
         else:
             await self._set_volume(self._ramp_to)
@@ -222,7 +224,13 @@ class AlarmAudio:
         if done >= 1:
             self._stop_ramp()
             done = 1.0
-        await self._set_volume(self._ramp_from + (self._ramp_to - self._ramp_from) * done)
+        await self._set_volume(self.volume_at(done))
+
+    def volume_at(self, done: float) -> float:
+        """Volume after this share of the ramp, smooth through the curve points."""
+        lo, hi = self._ramp_from, self._ramp_to
+        points = [(0.0, lo / 100), *((x, y / 100) for x, y in self.audio["curve"]), (1.0, hi / 100)]
+        return curve_value(points, done) * 100
 
     @callback
     def _on_state(self, event: Event[EventStateChangedData]) -> None:
