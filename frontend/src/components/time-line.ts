@@ -22,6 +22,8 @@ export class DbTimeLine extends LitElement {
   @property({ type: Boolean }) lastCall = false;
   /** Minutes the last call lasts (only with lastCall). */
   @property({ type: Number }) lcDuration = 10;
+  /** Minutes the music starts before the alarm; -1 = no music. */
+  @property({ type: Number }) audioLead = -1;
   @property({ type: Boolean }) fixedWake = false;
   @property({ type: Boolean }) showSnooze = true;
   @property() startLabel = "";
@@ -165,6 +167,22 @@ export class DbTimeLine extends LitElement {
       .handle.fixed span {
         border-style: dashed;
       }
+      .music {
+        position: absolute;
+        top: -2px;
+        transform: translateX(-50%);
+        font-size: 12px;
+        color: var(--db-muted);
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .musicline {
+        position: absolute;
+        top: 16px;
+        height: 32px;
+        border-left: 2px dotted var(--db-muted);
+        pointer-events: none;
+      }
       .wake {
         position: absolute;
         top: 10px;
@@ -228,7 +246,7 @@ export class DbTimeLine extends LitElement {
   /** Minutes shown left of the wake mark (room to drag the light start). */
   private get _room() {
     if (this._frozen) return this._frozen[0];
-    return Math.max(30, Math.ceil((this.lead + 15) / 15) * 15);
+    return Math.max(30, Math.ceil((Math.max(this.lead, this.audioLead) + 15) / 15) * 15);
   }
 
   /** Total minutes covered by the bar. */
@@ -388,6 +406,10 @@ export class DbTimeLine extends LitElement {
           : nothing}
         ${lc
           ? html`<div class="seg lc" style="left:${endPct}%;width:${offPct - endPct}%" title=${t(hass, "tl_last_call")}></div>`
+          : nothing}
+        ${this.audioLead >= 0 && this.showSnooze
+          ? html`<span class="music" style="left:${this._pct(room - this.audioLead)}%">♪ ${formatClock(hass, toHHMM(wake - this.audioLead))}</span>
+              <div class="musicline" style="left:${this._pct(room - this.audioLead)}%"></div>`
           : nothing}
         <div class="wake" style="left:${wakePct}%" title=${this.wakeLabel || t(hass, "tl_wake")}></div>
         <div
