@@ -10,7 +10,7 @@ import {
 } from "../api";
 import { errorText, t } from "../i18n";
 import { shared } from "../styles";
-import { clamp, fireEvent, friendlyName, lightsOf } from "../util";
+import { clamp, fireEvent, friendlyName, lightsOf, define } from "../util";
 import "../components/entity-picker";
 import "../components/audio-source";
 import { defaultSource } from "../model";
@@ -290,4 +290,4 @@ export class DbLastCallView extends LitElement {
   }
 }
 
-customElements.define("db-last-call-view", DbLastCallView);
+define("db-last-call-view", DbLastCallView);

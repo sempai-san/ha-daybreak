@@ -3,7 +3,7 @@ import { property, state } from "lit/decorators.js";
 import type { HomeAssistant } from "../api";
 import { t } from "../i18n";
 import { shared } from "../styles";
-import { clamp, fireEvent, formatClock, toHHMM, toMin } from "../util";
+import { clamp, fireEvent, formatClock, toHHMM, toMin, define } from "../util";
 
 export interface ShiftBand {
   key: string;
@@ -30,6 +30,7 @@ export class DbShiftLine extends LitElement {
   @property() gradient = "linear-gradient(90deg,#3a1a12,#ff8a4c,#fff3e0)";
   @state() private _drag?: string;
   private _range?: [number, number];
+  private _grown = 0;
 
   static styles = [
     shared,
@@ -171,7 +172,9 @@ export class DbShiftLine extends LitElement {
     if (this._range) return this._range;
     const wake = toMin(this.time);
     const earliest = Math.max(this.cap, ...this.bands.map((b) => b.minutes ?? 0)) + this.lead;
-    return [wake - earliest - 10, wake + 6];
+    // The wake time stays in the middle.
+    const half = Math.max(15, Math.ceil((earliest + 5) / 15) * 15);
+    return [wake - half, wake + half];
   }
 
   private _pct(clock: number) {
@@ -196,6 +199,11 @@ export class DbShiftLine extends LitElement {
   private _move(ev: PointerEvent) {
     if (!this._drag) return;
     const minutes = this._minutesEarlier(ev);
+    // Pushed against the left edge: widen the scale around the wake time.
+    if (this._range && toMin(this.time) - minutes <= this._range[0] + 1 && Date.now() - this._grown > 300) {
+      this._grown = Date.now();
+      this._range = [this._range[0] - 15, this._range[1] + 15];
+    }
     if (this._drag === "__cap") fireEvent(this, "cap-change", { minutes });
     else fireEvent(this, "band-change", { key: this._drag, minutes });
   }
@@ -288,4 +296,4 @@ export class DbShiftLine extends LitElement {
   }
 }
 
-customElements.define("db-shift-line", DbShiftLine);
+define("db-shift-line", DbShiftLine);

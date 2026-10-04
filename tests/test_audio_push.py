@@ -14,10 +14,12 @@ from pytest_homeassistant_custom_component.common import (
     async_mock_service,
 )
 
+from custom_components.daybreak.audio import AlarmAudio
 from custom_components.daybreak.const import (
     EVENT_ALARM_FINISHED,
     EVENT_ALARM_SNOOZED,
 )
+from custom_components.daybreak.models import validate_alarm
 from custom_components.daybreak.push import parse_action
 
 from .conftest import advance
@@ -173,3 +175,19 @@ async def test_phones_websocket(hass: HomeAssistant, manager, hass_ws_client) ->
     await client.send_json_auto_id({"type": "daybreak/ma_search", "query": "x"})
     msg = await client.receive_json()
     assert msg["error"]["code"] == "no_music_assistant"
+
+
+def test_volume_curve_points() -> None:
+    audio = validate_alarm({"audio": {"volume": [10, 50], "curve": [[0.8, 20], [0.2, 40]]}})[
+        "audio"
+    ]
+    assert audio["curve"] == [[0.2, 40.0], [0.8, 20.0]]
+    player = AlarmAudio.__new__(AlarmAudio)
+    player.audio = audio
+    player._ramp_from, player._ramp_to = 10, 50
+    assert player.volume_at(0) == pytest.approx(10)
+    assert player.volume_at(0.2) == pytest.approx(40)
+    assert player.volume_at(0.8) == pytest.approx(20)
+    assert player.volume_at(1) == pytest.approx(50)
+    player.audio = {**audio, "curve": []}
+    assert player.volume_at(0.5) == pytest.approx(30)

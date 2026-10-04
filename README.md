@@ -24,7 +24,8 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - Rules are checked again while the sunrise is running: the light start moves along, or a running sunrise gets shorter without jumping
 
 **Light**
-- Lights, groups, areas, devices or labels; settings shared by all lamps or **per lamp** (incl. a later start)
+- Lights, groups, areas, devices or labels; settings shared by all lamps or **per lamp**
+- **Start per lamp**: every lamp gets its own row on the time line and can start later (e.g. one lamp gently from the beginning, another one strongly shortly before the alarm); it still reaches its target at the alarm time
 - Four ready-made curves or your own **draggable curve**, one curve for everything or separate curves for brightness and colour
 - **Colour temperature or colour** (sunrise, dawn, pastel or your own colour sequence); white-only lamps follow a matching colour temperature
 - **Light profiles** (templates and your own). Profiles used by alarms of different people are locked; changes are saved as a new profile
@@ -37,7 +38,7 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 
 **Audio and phone**
 - Music Assistant (playlist, radio, album, track – with search in the editor), a sound URL and a spoken announcement (text-to-speech template, e.g. time and temperature)
-- Music starts a few minutes before the alarm, quietly, and gets louder; it pauses while snoozing and the old volume is restored afterwards. The volume ramp is a graphic: drag the two points or type time and volume right on them
+- Music starts a few minutes before the alarm, quietly, and gets louder; it pauses while snoozing and the old volume is restored afterwards. The volume is a smooth curve: add or remove points and drag them, or type time and volume of the selected point
 - **Speaker button**: pause on the speaker (e.g. tapping a HomePod) snoozes, during the last call it stops the alarm
 - Last call profiles can bring their own audio and volume
 - **Phone notifications with Snooze and Stop** to the owners' Home Assistant apps (found automatically) and other devices; the last call can be a **critical alert** that rings even in Do Not Disturb
@@ -159,7 +160,7 @@ Your alarms are converted automatically. The snooze length becomes a snooze opti
 
 ## Roadmap
 
-- **0.4**: own light start per lamp (each lamp can start earlier or later, one row per lamp on the time line), calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
+- **0.4**: calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
 - **0.5** (planned): climate – heating, cooling or fans before waking up (fixed lead or learned), with room/outdoor temperature, presence and open-window conditions
 - **1.0**: Home Assistant brands entry and submission to the HACS default store
 

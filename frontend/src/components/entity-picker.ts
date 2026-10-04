@@ -3,7 +3,7 @@ import { property, state } from "lit/decorators.js";
 import type { HomeAssistant } from "../api";
 import { t } from "../i18n";
 import { shared } from "../styles";
-import { fireEvent, friendlyName } from "../util";
+import { fireEvent, friendlyName, define } from "../util";
 
 interface Leaf {
   id: string;
@@ -380,4 +380,4 @@ export class DbEntityPicker extends LitElement {
   }
 }
 
-customElements.define("db-entity-picker", DbEntityPicker);
+define("db-entity-picker", DbEntityPicker);

@@ -3,7 +3,7 @@ import { property, state } from "lit/decorators.js";
 import type { HomeAssistant } from "../api";
 import { t } from "../i18n";
 import { shared } from "../styles";
-import { clamp, fireEvent, formatClock, toHHMM, toMin } from "../util";
+import { clamp, fireEvent, formatClock, toHHMM, toMin, define } from "../util";
 
 /**
  * Light start → wake → (snoozes) → last call / off on one bar.
@@ -11,8 +11,21 @@ import { clamp, fireEvent, formatClock, toHHMM, toMin } from "../util";
  * its own handle; dragging it changes only how early the light begins. The
  * end handle snaps to snooze steps and sets the snooze count; with a last
  * call a further handle sets when the alarm switches off for good.
- * Emits "timeline-change" with {time, lead, count, lcDuration}.
+ * The wake time always sits in the middle; the scale grows or shrinks so
+ * every handle fits. With per-lamp starts each lamp gets its own row.
+ * Emits "timeline-change" with {time, lead, count, lcDuration} and
+ * "lamp-start-change" with {entity, start}.
  */
+export interface LampStart {
+  entity: string;
+  name: string;
+  /** Minutes before the wake time. */
+  before: number;
+  gradient?: string;
+}
+
+type Drag = "start" | "end" | "off" | `lamp:${number}`;
+
 export class DbTimeLine extends LitElement {
   @property({ attribute: false }) hass?: HomeAssistant;
   @property() time = "07:00";
@@ -29,9 +42,12 @@ export class DbTimeLine extends LitElement {
   @property() startLabel = "";
   @property() wakeLabel = "";
   @property() gradient = "linear-gradient(90deg,#3a1a12,#ff8a4c,#fff3e0)";
-  @state() private _drag?: "start" | "end" | "off";
-  /** Scale frozen while dragging, so it does not run away: [lead room, span]. */
-  private _frozen?: [number, number];
+  /** Own start per lamp (minutes after the light start); empty = all start together. */
+  @property({ attribute: false }) lamps: LampStart[] = [];
+  @state() private _drag?: Drag;
+  /** Half width (minutes) frozen while dragging; grows when a handle reaches the edge. */
+  private _frozen?: number;
+  private _grown = 0;
   @state() private _dragText = "";
   @state() private _width = 600;
   private _ro?: ResizeObserver;
@@ -228,6 +244,54 @@ export class DbTimeLine extends LitElement {
       .ticks span.last {
         transform: translateX(-100%);
       }
+      .lamps {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: 4px;
+        touch-action: none;
+        user-select: none;
+      }
+      .lamp {
+        position: relative;
+        height: 46px;
+      }
+      .lname {
+        position: absolute;
+        top: 0;
+        font-size: 12px;
+        color: var(--db-muted);
+        white-space: nowrap;
+      }
+      .ltrack {
+        position: absolute;
+        top: 24px;
+        height: 10px;
+        border-radius: 5px;
+        background: var(--db-tile);
+      }
+      .lseg {
+        top: 24px;
+        height: 10px;
+        border-radius: 5px 0 0 5px;
+      }
+      .lwake {
+        position: absolute;
+        top: 18px;
+        width: 2px;
+        height: 22px;
+        margin-left: -1px;
+        background: var(--db-text);
+        opacity: 0.6;
+      }
+      .handle.lh {
+        top: 9px;
+      }
+      .handle.lh span {
+        width: 18px;
+        height: 18px;
+        border-color: var(--db-accent);
+      }
       @media (max-width: 520px) {
         .labels {
           gap: 6px;
@@ -243,18 +307,22 @@ export class DbTimeLine extends LitElement {
     `,
   ];
 
-  /** Minutes shown left of the wake mark (room to drag the light start). */
+  /** Minutes from the wake mark to each edge; the wake time stays centred. */
+  private get _half() {
+    if (this._frozen) return this._frozen;
+    const before = Math.max(this.lead, this.audioLead);
+    const after = this.showSnooze ? this.snooze * this.count + (this.lastCall ? this.lcDuration : 0) : 0;
+    return Math.max(15, Math.ceil((Math.max(before, after) + 5) / 15) * 15);
+  }
+
+  /** Minutes shown left of the wake mark. */
   private get _room() {
-    if (this._frozen) return this._frozen[0];
-    return Math.max(30, Math.ceil((Math.max(this.lead, this.audioLead) + 15) / 15) * 15);
+    return this._half;
   }
 
   /** Total minutes covered by the bar. */
   private get _span() {
-    if (this._frozen) return this._frozen[1];
-    if (!this.showSnooze) return this._room + 6;
-    const tail = this.snooze * this.count + (this.lastCall ? this.lcDuration : 0);
-    return this._room + tail + Math.max(this.snooze, 8);
+    return this._half * 2;
   }
 
   /** Position (%) of "minutes after the left edge of the bar". */
@@ -279,17 +347,34 @@ export class DbTimeLine extends LitElement {
     return ((ev.clientX - rect.left) / rect.width) * this._span - this._room;
   }
 
-  private _down(which: "start" | "end" | "off", ev: PointerEvent) {
-    const extra = which === "start" ? 30 : which === "end" ? this.snooze * 3 : 20;
-    this._frozen = [this._room + (which === "start" ? 30 : 0), this._span + extra];
+  private _down(which: Drag, ev: PointerEvent) {
+    this._frozen = this._half;
     this._drag = which;
     (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+  }
+
+  /** A lamp's start in minutes before the wake time (never before the light start). */
+  private _before(l: LampStart) {
+    return clamp(l.before, 1, Math.max(1, this.lead));
+  }
+
+  /** Grow the frozen scale (in steps) while a handle is pushed against an edge. */
+  private _grow(at: number) {
+    if (!this._frozen || Math.abs(at) < this._frozen - 2 || Date.now() - this._grown < 300) return;
+    this._grown = Date.now();
+    this._frozen += 15;
   }
 
   private _move(ev: PointerEvent) {
     if (!this._drag) return;
     const at = this._minutesAt(ev);
-    if (this._drag === "start") {
+    this._grow(at);
+    if (this._drag.startsWith("lamp:")) {
+      const lamp = this.lamps[Number(this._drag.slice(5))];
+      const before = Math.round(clamp(-at, 1, Math.max(1, this.lead)));
+      this._dragText = `${lamp.name} · ${formatClock(this.hass, toHHMM(toMin(this.time) - before))}`;
+      fireEvent(this, "lamp-start-change", { entity: lamp.entity, before });
+    } else if (this._drag === "start") {
       const lead = Math.round(clamp(-at, 0, 240));
       this._dragText = formatClock(this.hass, toHHMM(toMin(this.time) - lead));
       this._emit({ lead });
@@ -309,11 +394,14 @@ export class DbTimeLine extends LitElement {
     this._frozen = undefined;
   }
 
-  private _key(which: "start" | "end" | "off", ev: KeyboardEvent) {
+  private _key(which: Drag, ev: KeyboardEvent) {
     const step = ev.key === "ArrowRight" || ev.key === "ArrowUp" ? 1 : ev.key === "ArrowLeft" || ev.key === "ArrowDown" ? -1 : 0;
     if (!step) return;
     ev.preventDefault();
-    if (which === "start") this._emit({ lead: clamp(this.lead - step, 0, 240) });
+    if (which.startsWith("lamp:")) {
+      const lamp = this.lamps[Number(which.slice(5))];
+      fireEvent(this, "lamp-start-change", { entity: lamp.entity, before: clamp(this._before(lamp) - step, 1, Math.max(1, this.lead)) });
+    } else if (which === "start") this._emit({ lead: clamp(this.lead - step, 0, 240) });
     else if (which === "end") this._emit({ count: clamp(this.count + step, 1, 10) });
     else this._emit({ lcDuration: clamp(this.lcDuration + step, 1, 120) });
   }
@@ -370,7 +458,9 @@ export class DbTimeLine extends LitElement {
       ticks.push({ pct: this._pct(m), text: formatClock(hass, toHHMM(left + m)) });
     }
     const endLabel = this.lastCall ? t(hass, "tl_last_call") : t(hass, "tl_stop");
-    const dragPct = this._drag === "start" ? startPct : this._drag === "off" ? offPct : endPct;
+    const dragPct = this._drag?.startsWith("lamp:")
+      ? this._pct(room - this._before(this.lamps[Number(this._drag.slice(5))]))
+      : this._drag === "start" ? startPct : this._drag === "off" ? offPct : endPct;
     return html`
       <div class="labels" style="--cols:${lc ? 4 : 3}">
         <label>
@@ -451,8 +541,26 @@ export class DbTimeLine extends LitElement {
           (tk) => html`<span class=${tk.pct < 7 ? "first" : tk.pct > 93 ? "last" : ""} style="left:${tk.pct}%">${tk.text}</span>`,
         )}</div>
       </div>
+      ${this.lamps.length
+        ? html`<div class="lamps" @pointermove=${this._move} @pointerup=${this._up} @pointercancel=${this._up}>
+            ${this.lamps.map((l, i) => {
+              const from = this._pct(room - this._before(l));
+              return html`<div class="lamp">
+                <span class="lname" style="left:${startPct}%">${l.name} · ${formatClock(hass, toHHMM(wake - this._before(l)))}</span>
+                <div class="ltrack" style="left:${startPct}%;width:${wakePct - startPct}%"></div>
+                <div class="seg lseg" style="left:${from}%;width:${wakePct - from}%;background:${l.gradient ?? this.gradient}"></div>
+                <div class="lwake" style="left:${wakePct}%"></div>
+                <div class="handle lh" style="left:${from}%" tabindex="0" role="slider"
+                  aria-label=${`${t(hass, "tl_lamp_start")}: ${l.name}`}
+                  aria-valuetext=${formatClock(hass, toHHMM(wake - this._before(l)))}
+                  @pointerdown=${(e: PointerEvent) => this._down(`lamp:${i}`, e)}
+                  @keydown=${(e: KeyboardEvent) => this._key(`lamp:${i}`, e)}><span></span></div>
+              </div>`;
+            })}
+          </div>`
+        : nothing}
     `;
   }
 }
 
-customElements.define("db-time-line", DbTimeLine);
+define("db-time-line", DbTimeLine);

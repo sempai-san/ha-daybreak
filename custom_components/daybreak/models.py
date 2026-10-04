@@ -190,6 +190,12 @@ LIGHT_SCHEMA = vol.Schema(
         vol.Optional("profile", default=None): vol.Any(None, cv.string),
         vol.Optional("settings", default=dict): LIGHT_SETTINGS_SCHEMA,
         vol.Optional("overrides", default=list): [OVERRIDE_SCHEMA],
+        # Own start per lamp: minutes before the alarm time (only when enabled;
+        # a missing lamp starts with the light start).
+        vol.Optional("per_lamp_start", default=False): cv.boolean,
+        vol.Optional("starts", default=dict): {
+            cv.entity_id: vol.All(vol.Coerce(int), vol.Range(min=0, max=240))
+        },
     }
 )
 
@@ -329,6 +335,12 @@ TTS_SCHEMA = vol.Schema(
     }
 )
 
+
+def _curve_point(value: list[float]) -> list[float]:
+    x, y = value
+    return [min(1.0, max(0.0, x)), min(100.0, max(0.0, y))]
+
+
 AUDIO_SCHEMA = vol.Schema(
     {
         vol.Optional("enabled", default=False): cv.boolean,
@@ -339,6 +351,12 @@ AUDIO_SCHEMA = vol.Schema(
         vol.Optional("lead", default=5): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
         vol.Optional("volume", default=lambda: [5, 35]): _pair(PERCENT),
         vol.Optional("ramp", default=5): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
+        # Points between start and end volume: [share of the ramp 0..1, volume %].
+        vol.Optional("curve", default=list): vol.All(
+            [vol.All(vol.ExactSequence([vol.Coerce(float), vol.Coerce(float)]), _curve_point)],
+            vol.Length(max=8),
+            lambda pts: sorted(pts),
+        ),
         vol.Optional("pause_on_snooze", default=True): cv.boolean,
         # Pause on the speaker itself: snooze (stop during the last call).
         vol.Optional("button", default=True): cv.boolean,
@@ -435,6 +453,7 @@ MODE_FEATURES = [
     "calendar",
     "conditions",
     "overrides",
+    "lamp_start",
     "audio",
     "tts",
     "push",
@@ -443,7 +462,17 @@ MODE_FEATURES = [
     "fallback",
 ]
 DEFAULT_MODE_HIDDEN = {
-    "simple": ["sun", "pattern", "week_cycle", "calendar", "overrides", "tts", "actions", "none"],
+    "simple": [
+        "sun",
+        "pattern",
+        "week_cycle",
+        "calendar",
+        "overrides",
+        "lamp_start",
+        "tts",
+        "actions",
+        "none",
+    ],
     "normal": [],
 }
 

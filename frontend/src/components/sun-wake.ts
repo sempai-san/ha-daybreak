@@ -3,7 +3,7 @@ import { property, state } from "lit/decorators.js";
 import { fetchSun, type AlarmConfig, type HomeAssistant, type SunEvent, type SunTimes } from "../api";
 import { t, type StringKey } from "../i18n";
 import { shared } from "../styles";
-import { clamp, fireEvent, formatClock, formatDay, localHHMM, toHHMM, toMin } from "../util";
+import { clamp, fireEvent, formatClock, formatDay, localHHMM, toHHMM, toMin, define } from "../util";
 
 type Wake = AlarmConfig["wake"];
 
@@ -271,4 +271,4 @@ export class DbSunWake extends LitElement {
   }
 }
 
-customElements.define("db-sun-wake", DbSunWake);
+define("db-sun-wake", DbSunWake);

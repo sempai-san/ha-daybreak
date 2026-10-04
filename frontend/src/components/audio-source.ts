@@ -3,7 +3,7 @@ import { property, state } from "lit/decorators.js";
 import { maSearch, type AudioSource, type HomeAssistant, type MaItem } from "../api";
 import { errorText, t, type StringKey } from "../i18n";
 import { shared } from "../styles";
-import { fireEvent } from "../util";
+import { fireEvent, define } from "../util";
 
 const TYPES: AudioSource["type"][] = ["music_assistant", "url", "none"];
 const MEDIA: AudioSource["media_type"][] = ["playlist", "radio", "album", "track", "artist"];
@@ -163,4 +163,4 @@ export class DbAudioSource extends LitElement {
   }
 }
 
-customElements.define("db-audio-source", DbAudioSource);
+define("db-audio-source", DbAudioSource);

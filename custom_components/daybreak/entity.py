@@ -7,13 +7,13 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN, NAME, SIGNAL_ALARM_ADDED, SIGNAL_ALARMS_CHANGED, signal_alarm_updated
+from .devices import find_device
 from .manager import DaybreakManager
 
 HUB_ID = "hub"
@@ -42,7 +42,7 @@ def _via_hub(hass: HomeAssistant) -> dict[str, Any]:
     older ones only know the ``via_device`` identifier tuple.
     """
     if "via_device_id" in DeviceInfo.__annotations__:
-        hub = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, HUB_ID)})
+        hub = find_device(hass, (DOMAIN, HUB_ID))
         return {"via_device_id": hub.id} if hub else {}
     return {"via_device": (DOMAIN, HUB_ID)}
 

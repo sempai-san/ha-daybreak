@@ -107,7 +107,7 @@ export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
       combine: "max",
       notify: true,
     },
-    light: { targets: {}, profile: null, settings: defaultSettings(), overrides: [] },
+    light: { targets: {}, profile: null, settings: defaultSettings(), overrides: [], per_lamp_start: false, starts: {} },
     actions: { light_start: [], wake: [], snooze: [], stop: [] },
     fallback: {
       lights: {},
@@ -123,6 +123,7 @@ export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
       lead: 5,
       volume: [5, 35],
       ramp: 5,
+      curve: [],
       pause_on_snooze: true,
       button: true,
       restore_volume: true,
