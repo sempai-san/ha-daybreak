@@ -8,6 +8,7 @@ import {
   saveProfile,
   saveSettings,
   setOnce,
+  staleFrontend,
   subscribeAlarms,
   updateAlarm,
   type Alarm,
@@ -431,7 +432,18 @@ export class DaybreakPanel extends LitElement {
               </button>`,
             )}
           </div>`}
-      <main>${this._body()}</main>
+      <main>
+        ${staleFrontend
+          ? html`<section class="card active">
+              <div class="grow">
+                <div class="nm">${t(this.hass, "stale_title")}</div>
+                <div class="muted">${t(this.hass, "stale_text")}</div>
+              </div>
+              <button class="btn primary" @click=${() => window.location.reload()}>${t(this.hass, "stale_reload")}</button>
+            </section>`
+          : nothing}
+        ${this._body()}
+      </main>
     `;
   }
 

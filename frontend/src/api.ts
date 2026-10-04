@@ -267,6 +267,8 @@ export interface Settings {
   temperature_entity: string | null;
   holiday_entity: string | null;
   default_mode: EditorMode;
+  /** Editor options hidden per mode (expert always shows all). */
+  mode_hidden?: Partial<Record<"simple" | "normal", ModeFeature[]>>;
   notify: string | null;
 }
 
@@ -293,6 +295,27 @@ export interface LastCallProfile {
 
 export type EditorMode = "simple" | "normal" | "expert";
 
+/** Editor options that can be switched off per mode (mirrors MODE_FEATURES). */
+export const MODE_FEATURES = [
+  "sun",
+  "pattern",
+  "week_cycle",
+  "calendar",
+  "conditions",
+  "overrides",
+  "audio",
+  "tts",
+  "push",
+  "actions",
+  "none",
+  "fallback",
+] as const;
+export type ModeFeature = (typeof MODE_FEATURES)[number];
+export const DEFAULT_MODE_HIDDEN: Record<"simple" | "normal", ModeFeature[]> = {
+  simple: ["sun", "pattern", "week_cycle", "calendar", "overrides", "tts", "actions", "none"],
+  normal: [],
+};
+
 export interface Snapshot {
   alarms: Alarm[];
   next: { alarm_id: string; time: string } | null;
@@ -300,6 +323,7 @@ export interface Snapshot {
   holiday_entity: string | null;
   light_profiles: LightProfile[];
   last_call_profiles: LastCallProfile[];
+  version?: string;
 }
 
 export type AlarmAction =
@@ -368,6 +392,32 @@ export function fetchSun(hass: HomeAssistant, date: string, days = 1): Promise<R
 export const preview = (hass: HomeAssistant, entityIds: string[], settings: LightSettings, progress: number) =>
   hass.callWS<void>({ type: "daybreak/preview", entity_id: entityIds, settings, progress });
 
+declare const __DAYBREAK_VERSION__: string;
+export const FRONTEND_VERSION: string = __DAYBREAK_VERSION__;
+
+/** True when the page still runs an older DayBreak than Home Assistant has installed. */
+export let staleFrontend = false;
+
+/**
+ * After an update Home Assistant serves the new bundle, but an open page keeps
+ * the old one. Reload once per new version; if that did not help (app cache),
+ * remember it so the panel can show how to clear the cache.
+ */
+function checkVersion(version: string | undefined): void {
+  if (!version || version === FRONTEND_VERSION) return;
+  const key = `daybreak-reloaded-${version}`;
+  try {
+    if (!sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, "1");
+      window.location.reload();
+      return;
+    }
+  } catch {
+    /* storage blocked: do not risk a reload loop */
+  }
+  staleFrontend = true;
+}
+
 // One shared subscription per connection, used by every panel/card instance.
 type Listener = (snapshot: Snapshot) => void;
 interface Sub {
@@ -389,6 +439,7 @@ export function subscribeAlarms(hass: HomeAssistant, listener: Listener): () => 
   if (!current.unsub) {
     current.unsub = hass.connection.subscribeMessage<Snapshot>(
       (snapshot) => {
+        checkVersion(snapshot.version);
         current.last = snapshot;
         current.listeners.forEach((l) => l(snapshot));
       },

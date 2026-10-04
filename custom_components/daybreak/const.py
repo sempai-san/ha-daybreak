@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Final
 
 DOMAIN: Final = "daybreak"
 NAME: Final = "DayBreak"
+# Read once when the module is imported (in the executor, not the event loop).
+VERSION: Final[str] = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
 
 STORAGE_KEY: Final = DOMAIN
 STORAGE_VERSION: Final = 2

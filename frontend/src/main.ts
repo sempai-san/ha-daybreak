@@ -1,4 +1,5 @@
 // Entry point: registers the sidebar panel and the Lovelace cards.
+import { FRONTEND_VERSION } from "./api";
 import { t } from "./i18n";
 import "./panel";
 import "./cards/alarms-card";
@@ -21,4 +22,4 @@ for (const card of [
   }
 }
 
-console.info("%c DAYBREAK %c 0.3.0 ", "color:#3a2410;background:#ffcf7a;font-weight:bold", "color:#ffcf7a;background:#3a2410");
+console.info(`%c DAYBREAK %c ${FRONTEND_VERSION} `, "color:#3a2410;background:#ffcf7a;font-weight:bold", "color:#ffcf7a;background:#3a2410");

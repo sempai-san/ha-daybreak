@@ -7,6 +7,8 @@ import {
   type Action,
   type AlarmConfig,
   type EditorMode,
+  DEFAULT_MODE_HIDDEN,
+  type ModeFeature,
   type HomeAssistant,
   type LastCallProfile,
   type LightOverride,
@@ -43,6 +45,7 @@ import "./components/shift-line";
 import "./components/light-settings";
 import "./components/entity-picker";
 import "./components/audio-source";
+import "./components/audio-line";
 
 const PHASES: Phase[] = ["light_start", "wake", "snooze", "stop"];
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
@@ -455,6 +458,17 @@ export class DaybreakAlarmEditor extends LitElement {
     return this.mode === "simple";
   }
 
+  /**
+   * Whether an option is shown in the current mode (configured in the
+   * settings). Options this alarm already uses stay visible, so nothing
+   * runs that the user cannot see.
+   */
+  private _has(feature: ModeFeature, inUse = false) {
+    if (this.mode === "expert" || inUse) return true;
+    const hidden = this.settings?.mode_hidden?.[this.mode] ?? DEFAULT_MODE_HIDDEN[this.mode];
+    return !hidden.includes(feature);
+  }
+
   private _picker(
     domains: string[],
     value: string | string[] | null,
@@ -647,7 +661,7 @@ export class DaybreakAlarmEditor extends LitElement {
     const startLabel = d.kind === "sleep" ? t(hass, "tl_sleep_start") : d.kind === "kids" ? t(hass, "tl_kids_start") : "";
     const wakeLabel = d.kind === "sleep" ? t(hass, "tl_sleep_end") : d.kind === "kids" ? t(hass, "tl_kids_end") : "";
     return html`
-      ${!this._simple
+      ${this._has("sun", d.wake.type === "sun")
         ? html`<div class="seg" role="group">
             <button aria-pressed=${d.wake.type === "fixed"} @click=${() => this._sub("wake", { type: "fixed", time: this._wakeTime })}>
               ${t(hass, "wake_fixed")}
@@ -768,9 +782,9 @@ export class DaybreakAlarmEditor extends LitElement {
   private _repeatBlock() {
     const hass = this.hass;
     const rep = this.d.repeat;
-    const types: AlarmConfig["repeat"]["type"][] = this._simple
-      ? ["weekly", "interval", "once"]
-      : ["weekly", "interval", "pattern", "once"];
+    const types: AlarmConfig["repeat"]["type"][] = this._has("pattern") || rep.type === "pattern"
+      ? ["weekly", "interval", "pattern", "once"]
+      : ["weekly", "interval", "once"];
     return html`
       <div class="lbl">${t(hass, "repeat")}</div>
       <div class="seg" role="group">
@@ -789,7 +803,7 @@ export class DaybreakAlarmEditor extends LitElement {
               @change=${(ev: Event) => this._sub("repeat", { date: (ev.target as HTMLInputElement).value || null })} />
             <span class="muted">${t(hass, "once_date_hint")}</span></label>`
         : nothing}
-      ${!this._simple && rep.type !== "once" ? this._calendar() : nothing}
+      ${this._has("calendar") && rep.type !== "once" ? this._calendar() : nothing}
     `;
   }
 
@@ -815,7 +829,7 @@ export class DaybreakAlarmEditor extends LitElement {
             @click=${() => this._sub("repeat", { days })}>${t(hass, key)}</button>`,
         )}
       </div>
-      ${!this._simple
+      ${this._has("week_cycle")
         ? html`<div class="row">
               <span>${t(hass, "week_cycle")}</span>
               <div class="seg" role="group">
@@ -1221,7 +1235,7 @@ export class DaybreakAlarmEditor extends LitElement {
         .showFine=${d.kind === "wake"}
         @settings-change=${(ev: CustomEvent) => this._sub("light", { settings: ev.detail })}
       ></db-light-settings>
-      ${!this._simple && lights.length > 1 ? this._overrides(lights, start) : nothing}
+      ${this._has("overrides") && lights.length > 1 ? this._overrides(lights, start) : nothing}
     `;
   }
 
@@ -1347,25 +1361,9 @@ export class DaybreakAlarmEditor extends LitElement {
             <db-audio-source .hass=${hass} .source=${au.source} .hasMusicAssistant=${this._phones?.music_assistant ?? true}
               @source-change=${(ev: CustomEvent) => set({ source: ev.detail })}></db-audio-source>
             <div class="lbl">${t(hass, "audio_volume")}</div>
-            <div class="grid2">
-              ${!this._simple
-                ? html`<label class="field">${t(hass, "audio_vol_start")}
-                    <input class="inp" type="number" min="0" max="100" .value=${String(au.volume[0])}
-                      @change=${(e: Event) => set({ volume: [clamp(Number((e.target as HTMLInputElement).value), 0, 100), au.volume[1]] })} /></label>`
-                : nothing}
-              <label class="field">${t(hass, "audio_vol_end")}
-                <input class="inp" type="number" min="0" max="100" .value=${String(au.volume[1])}
-                  @change=${(e: Event) => set({ volume: [au.volume[0], clamp(Number((e.target as HTMLInputElement).value), 0, 100)] })} /></label>
-              <label class="field">${t(hass, "audio_lead")}
-                <input class="inp" type="number" min="0" max="60" .value=${String(au.lead)}
-                  @change=${(e: Event) => set({ lead: clamp(Number((e.target as HTMLInputElement).value), 0, 60) })} /></label>
-              ${!this._simple
-                ? html`<label class="field">${t(hass, "audio_ramp")}
-                    <input class="inp" type="number" min="0" max="60" .value=${String(au.ramp)}
-                      @change=${(e: Event) => set({ ramp: clamp(Number((e.target as HTMLInputElement).value), 0, 60) })} /></label>`
-                : nothing}
-            </div>
-            ${!this._simple
+            <db-audio-line .hass=${hass} .time=${this._wakeTime} .lead=${au.lead} .ramp=${au.ramp} .volume=${au.volume}
+              .simple=${this._simple} @audio-change=${(ev: CustomEvent) => set(ev.detail)}></db-audio-line>
+            ${this._has("tts", au.tts.enabled)
               ? html`<div class="lbl">${t(hass, "tts_title")}</div>
                   <div class="row">
                     <div class="grow"><div>${t(hass, "tts_on")}</div><div class="muted">${t(hass, "tts_on_d")}</div></div>
@@ -1383,8 +1381,10 @@ export class DaybreakAlarmEditor extends LitElement {
                                 ${(this._phones?.tts ?? []).map((e) => html`<option value=${e} ?selected=${au.tts.engine === e}>${friendlyName(hass, e)}</option>`)}
                               </select></label>`
                           : nothing}`
-                    : nothing}
-                  <div class="lbl">${t(hass, "audio_behaviour")}</div>
+                    : nothing}`
+              : nothing}
+            ${!this._simple
+              ? html`<div class="lbl">${t(hass, "audio_behaviour")}</div>
                   <label class="row"><input type="checkbox" .checked=${au.button}
                     @change=${(e: Event) => set({ button: (e.target as HTMLInputElement).checked })} />${t(hass, "audio_button")}</label>
                   <label class="row"><input type="checkbox" .checked=${au.pause_on_snooze}
@@ -1602,13 +1602,13 @@ export class DaybreakAlarmEditor extends LitElement {
         <div class="muted">${t(this.hass, `mode_${this.mode}_hint` as StringKey)}</div>
         ${this._head()}
         ${this._timeSection()}
-        ${kind === "wake" || !this._simple ? this._condSection() : nothing}
+        ${(kind === "wake" || !this._simple) && this._has("conditions") ? this._condSection() : nothing}
         ${this._lightSection()}
-        ${kind === "wake" ? this._audioSection() : nothing}
-        ${kind === "wake" ? this._pushSection() : nothing}
-        ${!this._simple ? this._actionsSection() : nothing}
-        ${!this._simple && kind === "wake" ? this._noneSection() : nothing}
-        ${this._fallbackSection()}
+        ${kind === "wake" && this._has("audio", this.d.audio.enabled) ? this._audioSection() : nothing}
+        ${kind === "wake" && this._has("push", this.d.push.enabled) ? this._pushSection() : nothing}
+        ${this._has("actions", PHASES.some((p) => this.d.actions[p].length)) ? this._actionsSection() : nothing}
+        ${this._has("none") && kind === "wake" ? this._noneSection() : nothing}
+        ${this._has("fallback") ? this._fallbackSection() : nothing}
       </div>
     `;
   }

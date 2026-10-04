@@ -7,6 +7,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
@@ -34,6 +35,18 @@ def setup_alarm_platform(
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ALARM_ADDED, _add))
 
 
+def _via_hub(hass: HomeAssistant) -> dict[str, Any]:
+    """Link alarm devices to the DayBreak hub device.
+
+    Newer Home Assistant versions want the hub's device id (``via_device_id``);
+    older ones only know the ``via_device`` identifier tuple.
+    """
+    if "via_device_id" in DeviceInfo.__annotations__:
+        hub = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, HUB_ID)})
+        return {"via_device_id": hub.id} if hub else {}
+    return {"via_device": (DOMAIN, HUB_ID)}
+
+
 class DaybreakAlarmEntity(Entity):
     """Entity that belongs to one alarm (one device per alarm)."""
 
@@ -51,7 +64,7 @@ class DaybreakAlarmEntity(Entity):
             manufacturer=NAME,
             model="Alarm",
             entry_type=DeviceEntryType.SERVICE,
-            via_device=(DOMAIN, HUB_ID),
+            **_via_hub(manager.hass),
         )
 
     @property

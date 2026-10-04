@@ -14,7 +14,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
-from .const import SIGNAL_ALARMS_CHANGED
+from .const import SIGNAL_ALARMS_CHANGED, VERSION
 from .helpers import get_manager
 from .manager import DaybreakError
 from .push import person_services, phone_services
@@ -57,6 +57,7 @@ def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "alarms": [manager.as_dict(alarm_id) for alarm_id in manager.alarms],
         "next": {"alarm_id": nxt[0], "time": nxt[1].isoformat()} if nxt else None,
         "settings": manager.settings,
+        "version": VERSION,
         "holiday_entity": manager.holiday_entity(),
         "light_profiles": manager.all_light_profiles(),
         "last_call_profiles": manager.all_last_call_profiles(),
