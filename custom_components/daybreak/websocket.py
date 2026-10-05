@@ -46,6 +46,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_sun)
     websocket_api.async_register_command(hass, ws_preview)
     websocket_api.async_register_command(hass, ws_calendar_preview)
+    websocket_api.async_register_command(hass, ws_test)
     websocket_api.async_register_command(hass, ws_once)
     websocket_api.async_register_command(hass, ws_ma_search)
     websocket_api.async_register_command(hass, ws_phones)
@@ -63,6 +64,7 @@ def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "light_profiles": manager.all_light_profiles(),
         "last_call_profiles": manager.all_last_call_profiles(),
         "climate_profiles": manager.all_climate_profiles(),
+        "history": manager.history,
     }
 
 
@@ -308,6 +310,38 @@ async def ws_preview(
     """Show one point of a light curve on real lights."""
     try:
         await get_manager(hass).async_preview(msg["settings"], msg["entity_id"], msg["progress"])
+    except (vol.Invalid, HomeAssistantError) as err:
+        _error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "daybreak/alarm/test",
+        vol.Required("alarm_id"): str,
+        # Unsaved editor settings; default = the stored alarm.
+        vol.Optional("alarm"): dict,
+        # Time lapse: 1 = real time, 6 = one minute takes 10 seconds.
+        vol.Optional("speed", default=6): vol.All(vol.Coerce(float), vol.Range(min=1, max=120)),
+        vol.Optional("parts"): [vol.In(["light", "audio"])],
+        vol.Optional("start", default="light"): vol.In(["light", "ring"]),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_test(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Test run in time lapse, optionally with unsaved settings."""
+    try:
+        await get_manager(hass).async_test(
+            msg["alarm_id"],
+            config=msg.get("alarm"),
+            speed=msg["speed"],
+            parts=msg.get("parts"),
+            start=msg["start"],
+        )
     except (vol.Invalid, HomeAssistantError) as err:
         _error(connection, msg["id"], err)
         return

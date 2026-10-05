@@ -22,6 +22,7 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - [Installation](#installation)
 - [First steps](#first-steps)
 - [Calendar rules](#calendar-rules)
+- [Test run and history](#test-run-and-history)
 - [Dashboard cards](#dashboard-cards)
 - [Entities, actions and events](#entities)
 - [Updating](#updating)
@@ -78,6 +79,10 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - After waking up: back to the previous state, switch off, or keep running while somebody is home
 - **Climate profiles** shared by several alarms, or own settings per alarm
 
+**Testing and troubleshooting**
+- **Test run in time lapse** right in the editor (light and audio sections): e.g. one minute takes 10 seconds, also for snooze, the last call and the music ramp; works with unsaved settings, shows a simulated clock and problems such as a speaker that could not play
+- **History** of the last 10 runs (also tests and skipped alarms) as a flow of steps: start, music, ringing, snooze, last call, end; problems are marked red
+
 **More**
 - Actions at light start, alarm, snooze and stop (any Home Assistant action)
 - Notifications (e.g. alarm moved, lamp not reachable) and Home Assistant notifications for problems
@@ -99,6 +104,10 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 | Climate | Light profiles |
 | --- | --- |
 | ![Climate](docs/images/climate.png) | ![Light profiles](docs/images/profiles.png) |
+
+| Test run | History |
+| --- | --- |
+| ![Test run](docs/images/testrun.png) | ![History](docs/images/history.png) |
 
 | Settings | Phone |
 | --- | --- |
@@ -163,6 +172,20 @@ Each rule reads like a sentence:
 - **Travel time** uses Waze Travel Time from your home (or a person, zone or device tracker) to the location of the event. Without Waze, or when an event has no location, a fixed travel time is used.
 - If the alarm that should ring instead is switched off, the original alarm rings as usual, so a day is never left without an alarm.
 - Calendars are read every 15 minutes for the next 8 days. The preview at the bottom of the section shows what each rule does in the next days.
+
+## Test run and history
+
+**Test run:** at the end of the **Light** and **Audio** sections of the editor.
+
+- Choose the **time lapse**: real time, 1 min = 10 s, 1 min = 2 s or 1 min = 1 s. Everything runs faster: sunrise, music start and volume ramp, snooze time and last call.
+- Start **from the light start** (the whole morning) or **right at the alarm** (e.g. to check the music and snoozing).
+- The test uses the settings shown in the editor, **also unsaved ones**; the alarm itself stays unchanged. The alarm must be saved once.
+- While it runs you see a simulated clock and can **Snooze** and **Stop** like in the morning; the buttons on the speaker and in the phone notification work too.
+- If something goes wrong (e.g. Music Assistant finds nothing to play), the problem is shown right there.
+
+**History:** the **History** tab shows the last 10 runs of all alarms, including test runs and alarms that were skipped because nobody was home. Every run is a row of steps with their times; problems are red. For the full error text look at **Settings → System → Logs**.
+
+If an alarm cannot start its music, DayBreak tries again and lets Music Assistant work out the media type itself; if that fails too, you get a notification (choose the events under **Safety & notifications**).
 
 ## Dashboard cards
 

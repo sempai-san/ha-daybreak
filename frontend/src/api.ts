@@ -306,7 +306,19 @@ export interface AlarmRuntime {
   climate_samples?: number;
   calendar?: CalendarDecision | null;
   calendar_days?: (CalendarDecision & { date: string })[];
+  /** Time lapse of a running test (6 = one minute takes 10 s). */
+  test_speed?: number | null;
+  /** Problems of the last run. */
+  problems?: { part: TestPart; message: string; time: string }[];
 }
+
+export type TestPart = "light" | "audio";
+
+export const testRun = (
+  hass: HomeAssistant,
+  alarmId: string,
+  opts: { alarm?: Partial<AlarmConfig>; speed: number; parts: TestPart[]; start: "light" | "ring" },
+) => hass.callWS<void>({ type: "daybreak/alarm/test", alarm_id: alarmId, ...opts });
 
 export interface Alarm extends AlarmConfig {
   id: string;
@@ -430,6 +442,38 @@ export interface Snapshot {
   last_call_profiles: LastCallProfile[];
   climate_profiles?: ClimateProfile[];
   version?: string;
+  /** The last runs, newest first. */
+  history?: HistoryEntry[];
+}
+
+export interface HistoryStep {
+  t: string;
+  step: string;
+  ok: boolean;
+  detail?: string;
+  reason?: string;
+  lights?: number;
+  light_start?: string;
+  shift?: number;
+  players?: number;
+  minutes?: number;
+  count?: number;
+  profile?: string;
+}
+
+export interface HistoryEntry {
+  id: string;
+  alarm_id: string;
+  name: string;
+  kind: Kind;
+  test: boolean;
+  speed: number | null;
+  alarm_time: string;
+  started: string;
+  ended: string | null;
+  result: string;
+  problem?: boolean;
+  steps: HistoryStep[];
 }
 
 export type AlarmAction =
