@@ -459,6 +459,21 @@ const $t = {
   feat_week_cycle_d: "Only every 2nd, 3rd or 4th week",
   feat_calendar: "Calendar",
   feat_calendar_d: "Skip or move alarms by calendar events",
+  "hx_wx_clear-night": "clear night",
+  hx_wx_cloudy: "cloudy",
+  hx_wx_exceptional: "extreme weather",
+  hx_wx_fog: "fog",
+  hx_wx_hail: "hail",
+  hx_wx_lightning: "thunderstorm",
+  "hx_wx_lightning-rainy": "thunderstorm with rain",
+  hx_wx_partlycloudy: "partly cloudy",
+  hx_wx_pouring: "heavy rain",
+  hx_wx_rainy: "rain",
+  hx_wx_snowy: "snow",
+  "hx_wx_snowy-rainy": "sleet",
+  hx_wx_sunny: "sunny",
+  hx_wx_windy: "windy",
+  "hx_wx_windy-variant": "windy and cloudy",
   phase_last_call: "Last call",
   hx_hint: "Every alarm: rung, skipped, planned and test runs, newest first. Pick one to see step by step what happened, from the checks before the light to the end.",
   hx_pick: "Pick an alarm on the left to see its course.",
@@ -580,7 +595,7 @@ const $t = {
   hx_ring_again_t: "Rings again",
   hx_ring_again_d: "The snooze time is over.",
   hx_snooze_t: "Snoozed",
-  hx_snooze_d: "{min} min ({n}. time).",
+  hx_snooze_d: "{min} min (snooze {n}).",
   hx_button_t: "Speaker button",
   hx_button_d: "Pause was pressed on the speaker.",
   hx_last_call_t: "Last call",
@@ -1313,6 +1328,21 @@ const $t = {
   feat_week_cycle_d: "Nur jede 2., 3. oder 4. Woche",
   feat_calendar: "Kalender",
   feat_calendar_d: "Wecker per Kalendertermin aussetzen oder verschieben",
+  "hx_wx_clear-night": "klare Nacht",
+  hx_wx_cloudy: "bewölkt",
+  hx_wx_exceptional: "Extremwetter",
+  hx_wx_fog: "Nebel",
+  hx_wx_hail: "Hagel",
+  hx_wx_lightning: "Gewitter",
+  "hx_wx_lightning-rainy": "Gewitter mit Regen",
+  hx_wx_partlycloudy: "teilweise bewölkt",
+  hx_wx_pouring: "Starkregen",
+  hx_wx_rainy: "Regen",
+  hx_wx_snowy: "Schnee",
+  "hx_wx_snowy-rainy": "Schneeregen",
+  hx_wx_sunny: "sonnig",
+  hx_wx_windy: "windig",
+  "hx_wx_windy-variant": "windig und bewölkt",
   phase_last_call: "Letzter Versuch",
   hx_hint: "Alle Wecker: geklingelt, ausgelassen, geplant und Probeläufe, die neuesten oben. Wähle einen aus, um Schritt für Schritt zu sehen, was passiert ist, von den Prüfungen vor dem Licht bis zum Ende.",
   hx_pick: "Wähle links einen Wecker, um seinen Ablauf zu sehen.",
@@ -8858,7 +8888,11 @@ const us = class us extends L {
     switch (i) {
       case "checks": {
         const r = [];
-        t.weather && r.push(n("hx_checks_weather", { w: t.weather })), t.temperature != null && r.push(`${t.temperature} °C`), t.warning && r.push(n("hx_checks_warning", { n: t.warning })), t.travel != null && r.push(n("hx_checks_travel", { min: t.travel }));
+        if (t.weather) {
+          const c = `hx_wx_${t.weather}`, h = n(c);
+          r.push(n("hx_checks_weather", { w: h === c ? t.weather : h }));
+        }
+        t.temperature != null && r.push(`${t.temperature} °C`), t.warning && r.push(n("hx_checks_warning", { n: t.warning })), t.travel != null && r.push(n("hx_checks_travel", { min: t.travel }));
         const d = (t.reasons ?? []).map((c) => n(`hx_reason_${c}`)).join(", ");
         return {
           title: n("hx_checks_t"),
@@ -9188,6 +9222,7 @@ us.styles = [
         white-space: nowrap;
       }
       .rt .muted {
+        display: block;
         font-size: 12px;
         overflow: hidden;
         text-overflow: ellipsis;

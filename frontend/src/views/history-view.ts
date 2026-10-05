@@ -196,6 +196,7 @@ export class DbHistoryView extends LitElement {
         white-space: nowrap;
       }
       .rt .muted {
+        display: block;
         font-size: 12px;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -465,7 +466,11 @@ export class DbHistoryView extends LitElement {
     switch (k) {
       case "checks": {
         const found: string[] = [];
-        if (step.weather) found.push(v("hx_checks_weather", { w: step.weather }));
+        if (step.weather) {
+          const key = `hx_wx_${step.weather}`;
+          const w = v(key);
+          found.push(v("hx_checks_weather", { w: w === key ? step.weather : w }));
+        }
         if (step.temperature != null) found.push(`${step.temperature} °C`);
         if (step.warning) found.push(v("hx_checks_warning", { n: step.warning }));
         if (step.travel != null) found.push(v("hx_checks_travel", { min: step.travel }));
