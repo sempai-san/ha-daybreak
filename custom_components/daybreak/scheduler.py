@@ -17,6 +17,8 @@ SEARCH_DAYS = 62
 
 SunLookup = Callable[[date, str], datetime | None]
 HolidayLookup = Callable[[date], bool]
+# Calendar decision for a day (see calendar_rules.Decision), or None.
+DayRule = Callable[[date], Any]
 
 
 def parse_time(value: str) -> time:
@@ -107,6 +109,7 @@ def next_occurrence(
     *,
     sun: SunLookup | None = None,
     is_holiday: HolidayLookup | None = None,
+    day_rule: DayRule | None = None,
 ) -> datetime | None:
     """Next alarm time strictly after ``now`` (before any shift), or None."""
     if not alarm.get("enabled", True):
@@ -117,18 +120,28 @@ def next_occurrence(
     for offset in range(-1, SEARCH_DAYS):
         day = now.date() + timedelta(days=offset)
         override = bool(once and once["date"] == day.isoformat())
-        if not override and not day_matches(alarm, day):
+        decision = day_rule(day) if day_rule is not None and not override else None
+        if decision is not None and decision.action in ("skip", "alarm"):
+            continue
+        # A calendar rule that sets a time (or hands the day over) rings even on
+        # holidays and, if allowed, on days the repeat rule leaves out.
+        forced = decision is not None
+        if not override and not forced and not day_matches(alarm, day):
             continue
         if day.isoformat() == alarm.get("skip_date"):
             continue
         if (
             not override
+            and not forced
             and is_holiday is not None
             and not alarm.get("wake_on_holidays", True)
             and is_holiday(day)
         ):
             continue
-        when = wake_time_on(alarm, day, tz, sun)
+        if decision is not None and decision.time is not None:
+            when = decision.time
+        else:
+            when = wake_time_on(alarm, day, tz, sun)
         if when is None or when <= now:
             continue
         if rep["type"] == "once" and rep.get("date") is None and offset > 1:

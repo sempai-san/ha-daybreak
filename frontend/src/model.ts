@@ -2,6 +2,8 @@
 import type {
   AlarmConfig,
   AudioSource,
+  CalendarConfig,
+  CalendarRule,
   ClimateConfig,
   ClimateSettings,
   ColorPreset,
@@ -114,6 +116,29 @@ export function defaultClimate(): ClimateConfig {
   };
 }
 
+export function defaultCalendarRule(): CalendarRule {
+  return {
+    enabled: true,
+    calendars: [],
+    keywords: [],
+    match: "any",
+    action: "skip",
+    time: "06:00",
+    before: 60,
+    travel: false,
+    any_day: false,
+    alarm: null,
+  };
+}
+
+export function defaultCalendar(): CalendarConfig {
+  return {
+    enabled: false,
+    rules: [],
+    travel: { origin: null, region: "auto", vehicle: "car", avoid_toll: false, fallback: 30 },
+  };
+}
+
 export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
   const alarm: AlarmConfig = {
     name,
@@ -170,6 +195,7 @@ export function defaultAlarm(kind: Kind = "wake", name = ""): AlarmConfig {
     },
     push: { enabled: true, owners: true, targets: [], critical_last_call: false },
     climate: defaultClimate(),
+    calendar: defaultCalendar(),
   };
   if (kind === "sleep") {
     alarm.wake.time = "22:30";

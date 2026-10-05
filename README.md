@@ -2,11 +2,31 @@
 
 **A fully customisable sunrise alarm clock for Home Assistant.**
 
-DayBreak wakes you up gently: your lights fade in like a sunrise before the alarm time. You manage alarms in a dedicated sidebar panel and control them from dashboard cards. Every alarm is also available to automations as entities, events and actions.
+> [!WARNING]
+> **This project is AI-generated ("vibe coding").**
+> Almost all of the code, tests and documentation were written by an AI (Claude). The maintainer describes what DayBreak should do, then tests the result in a test instance and on a real Home Assistant. Not every line has been reviewed by an experienced developer.
+>
+> - Use DayBreak at your own risk and make a **backup** before you install or update it.
+> - **Do not rely on DayBreak as your only alarm** for anything important (flights, exams, medication). Keep a second alarm, e.g. on your phone.
+> - DayBreak controls real devices: lights, speakers, heating and air conditioning. Check your settings, especially for climate devices.
+> - Bug reports are very welcome in the [issue tracker](https://github.com/sempai-san/hacs_daybreak/issues).
 
-> **Status:** v0.4. Sunrise, sleep and kids lights, sun-based times, automatic shifts, profiles, audio, phone notifications with Snooze/Stop and climate before waking up work. Calendars are on the [roadmap](#roadmap).
+DayBreak wakes you up gently: your lights fade in like a sunrise before the alarm time, music gets louder, and the bedroom is already warm. You manage alarms in a dedicated sidebar panel and control them from dashboard cards. Every alarm is also available to automations as entities, events and actions.
 
 ![DayBreak panel](docs/images/panel.png)
+
+## Contents
+
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Installation](#installation)
+- [First steps](#first-steps)
+- [Calendar rules](#calendar-rules)
+- [Dashboard cards](#dashboard-cards)
+- [Entities, actions and events](#entities)
+- [Updating](#updating)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
 
 ## Features
 
@@ -18,14 +38,23 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - **Public holidays** are skipped via the Workday integration (normal free days are not treated as holidays)
 - Owners per alarm; presence check (skip when nobody is home, stop when everybody leaves) only when you pick presence entities
 
+**Calendar**
+- Rules per alarm: *if an event in these calendars contains these keywords, then …*
+  - **no alarm** (e.g. "Vacation")
+  - **another time** (e.g. "Early shift" → 05:00)
+  - **X minutes before the event**, optionally **plus the travel time** to the event's location (Waze, with live traffic shortly before)
+  - **another alarm rings instead** (e.g. on a "Home office" day your weekend alarm rings)
+- Rules can also ring on days the alarm is not set for (e.g. a Saturday shift)
+- Rules are checked from top to bottom, the first matching rule decides; a preview shows what happens in the next days
+
 **Wake earlier automatically**
-- Weather (snow/ice, storm incl. official warnings such as DWD, heavy rain, cold) and **travel time** (e.g. Waze, with "arrive by" and your morning routine)
+- Weather (snow/ice, storm incl. official warnings such as DWD, heavy rain, cold) and **travel time** from a sensor (e.g. Waze, with "arrive by" and your morning routine)
 - Several rules: take the strongest one or add them up, always capped by a maximum
 - Rules are checked again while the sunrise is running: the light start moves along, or a running sunrise gets shorter without jumping
 
 **Light**
 - Lights, groups, areas, devices or labels; settings shared by all lamps or **per lamp**
-- **Start per lamp**: every lamp gets its own row on the time line and can start later (e.g. one lamp gently from the beginning, another one strongly shortly before the alarm); it still reaches its target at the alarm time
+- **Start per lamp**: every lamp gets its own row on the time line and can start later; it still reaches its target at the alarm time
 - Four ready-made curves or your own **draggable curve**, one curve for everything or separate curves for brightness and colour
 - **Colour temperature or colour** (sunrise, dawn, pastel or your own colour sequence); white-only lamps follow a matching colour temperature
 - **Light profiles** (templates and your own). Profiles used by alarms of different people are locked; changes are saved as a new profile
@@ -37,33 +66,49 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 - Turning a lamp off by hand stops the alarm (optional)
 
 **Audio and phone**
-- Music Assistant (playlist, radio, album, track – with search in the editor), a sound URL and a spoken announcement (text-to-speech template, e.g. time and temperature)
-- Music starts a few minutes before the alarm, quietly, and gets louder; it pauses while snoozing and the old volume is restored afterwards. The volume is a smooth curve: add or remove points and drag them, or type time and volume of the selected point
+- Music Assistant (playlist, radio, album, track, with search in the editor), a sound URL and a spoken announcement (text-to-speech template, e.g. time and temperature)
+- Music starts a few minutes before the alarm, quietly, and gets louder along a curve you can shape with points; it pauses while snoozing and the old volume is restored afterwards
 - **Speaker button**: pause on the speaker (e.g. tapping a HomePod) snoozes, during the last call it stops the alarm
-- Last call profiles can bring their own audio and volume
 - **Phone notifications with Snooze and Stop** to the owners' Home Assistant apps (found automatically) and other devices; the last call can be a **critical alert** that rings even in Do Not Disturb
 
 **Climate**
 - Thermostats and air conditioners (heat, cool, heat/cool, auto, dry, fan), fans, humidifiers and dehumidifiers, water heaters and plain switches (e.g. an electric blanket)
-- Start a fixed time before the alarm, or **learned**: DayBreak measures how fast the room warms up or cools down and starts just in time (planned with the weather forecast in the evening, adjusted with the current temperature shortly before)
-- Only when needed (room not at the target yet), only when somebody is home, only when it is colder/warmer outside than a limit; pauses while a window is open
+- Start a fixed time before the alarm, or **learned**: DayBreak measures how fast the room warms up or cools down and starts just in time (planned with the weather forecast, adjusted with the current temperature shortly before)
+- Only when needed, only when somebody is home, only when it is colder/warmer outside than a limit; pauses while a window is open
 - After waking up: back to the previous state, switch off, or keep running while somebody is home
 - **Climate profiles** shared by several alarms, or own settings per alarm
 
 **More**
 - Actions at light start, alarm, snooze and stop (any Home Assistant action)
-- Push notifications (e.g. alarm moved, lamp not reachable) and Home Assistant notifications for problems
-- **Simple / Advanced / Expert** editor, works on phone, tablet and desktop. In the settings you choose which options Simple and Advanced show (e.g. hide audio); Expert always shows everything
-- After an update the DayBreak page reloads itself once, so no cache clearing is needed
+- Notifications (e.g. alarm moved, lamp not reachable) and Home Assistant notifications for problems
+- **Simple / Advanced / Expert** editor that works on phone, tablet and desktop. In the settings you choose which options Simple and Advanced show; Expert always shows everything
 - Import/export of alarms and profiles
 - Dashboard cards in Home Assistant style, optionally Mushroom or Bubble look
 - English and German UI
 
-| Editor | Light profiles |
+## Screenshots
+
+| Alarm editor | Calendar rules |
 | --- | --- |
-| ![Editor](docs/images/editor.png) | ![Light profiles](docs/images/profiles.png) |
+| ![Editor](docs/images/editor.png) | ![Calendar rules](docs/images/calendar.png) |
+
+| Light | Audio |
+| --- | --- |
+| ![Light](docs/images/light.png) | ![Audio](docs/images/audio.png) |
+
+| Climate | Light profiles |
+| --- | --- |
+| ![Climate](docs/images/climate.png) | ![Light profiles](docs/images/profiles.png) |
+
+| Settings | Phone |
+| --- | --- |
+| ![Settings](docs/images/settings.png) | ![Phone](docs/images/mobile.png) |
+
+![Dashboard cards](docs/images/cards.png)
 
 ## Installation
+
+Requires Home Assistant **2026.2** or newer.
 
 ### HACS (custom repository)
 
@@ -78,9 +123,48 @@ A **DayBreak** entry then appears in the sidebar. You do not need to register an
 
 Copy `custom_components/daybreak` into your `config/custom_components` folder, restart and add the integration.
 
-## Dashboard cards
+### Optional integrations
 
-![Cards](docs/images/cards.png)
+| Integration | Used for |
+| --- | --- |
+| [Workday](https://www.home-assistant.io/integrations/workday/) | Skip public holidays |
+| [Waze Travel Time](https://www.home-assistant.io/integrations/waze_travel_time/) | Travel time to an event's location; travel sensor for "wake earlier" |
+| A calendar integration (Local Calendar, Google, CalDAV, …) | Calendar rules |
+| A weather integration | Weather rules, outdoor temperature for climate |
+| [Music Assistant](https://www.music-assistant.io/) | Music and radio |
+| Home Assistant Companion app | Phone notifications with Snooze and Stop |
+
+## First steps
+
+1. Open **DayBreak** in the sidebar and tap **+ New**.
+2. Give the alarm a name, set the alarm time and the days.
+3. Under **Light**, pick your lamps and a curve. The time line shows when the light starts; drag the handle to change it.
+4. **Save**. Use **Test** to run the whole alarm in about a minute.
+
+Start with the **Simple** mode; switch to **Advanced** or **Expert** at the top of the editor when you need more.
+
+## Calendar rules
+
+Open an alarm, then the **Calendar** section (in Simple mode, enable it first under **Settings → What each mode shows**).
+
+Each rule reads like a sentence:
+
+| Rule | Effect |
+| --- | --- |
+| Private: "Vacation" → no alarm | The alarm is skipped on vacation days |
+| Work: "Early shift" → wake at 05:00 | 05:00 instead of the normal time |
+| Work: "Meeting" → 45 min + travel before it starts | Meeting at 09:00, 30 min drive: the alarm rings at 07:45 |
+| Work: "Home office" → "Weekend" rings instead | This alarm stays silent, the weekend alarm rings at its own time |
+| Work: "Saturday" and "service" → wake at 06:30, also on days the alarm is not set for | Rings on a Saturday although the alarm is set for weekdays only |
+
+- Keywords are searched in the title and the description of the event; upper/lower case does not matter. Without keywords every event counts.
+- Choose **one of the words** or **all words** when a rule has several keywords.
+- Rules are checked **from top to bottom**; the first rule that matches decides the day. Use ↑ ↓ to change the order.
+- **Travel time** uses Waze Travel Time from your home (or a person, zone or device tracker) to the location of the event. Without Waze, or when an event has no location, a fixed travel time is used.
+- If the alarm that should ring instead is switched off, the original alarm rings as usual, so a day is never left without an alarm.
+- Calendars are read every 15 minutes for the next 8 days. The preview at the bottom of the section shows what each rule does in the next days.
+
+## Dashboard cards
 
 ```yaml
 type: custom:daybreak-alarms-card
@@ -117,7 +201,7 @@ Each alarm gets its own device with:
 
 Global: `sensor.daybreak_next_alarm` (the next alarm of all alarms) and `binary_sensor.daybreak_alarm_active`.
 
-## Actions
+### Actions
 
 | Action | Data |
 | --- | --- |
@@ -145,7 +229,7 @@ actions:
       - action: daybreak.stop
 ```
 
-## Events
+### Events
 
 `daybreak_sunrise_started`, `daybreak_alarm_ringing`, `daybreak_alarm_snoozed`, `daybreak_alarm_stopped`, `daybreak_alarm_skipped`, `daybreak_alarm_finished`, `daybreak_last_call`, `daybreak_alarm_shifted`. Every event carries `alarm_id`, `name` and `kind`. Some events carry more data, such as `reason` (`stopped`, `auto_stop`, `manual_light_off`, `away`, `last_call_timeout`, …) or `test`.
 
@@ -161,14 +245,26 @@ actions:
       entity_id: cover.bedroom
 ```
 
-## Updating from 0.1
+## Updating
 
-Your alarms are converted automatically. The snooze length becomes a snooze option and a custom last call becomes a last call profile.
+1. In HACS, open **DayBreak** and choose **Update**. If no update is shown, open the menu (⋮) → **Redownload** and pick the newest version.
+2. Restart Home Assistant.
+3. The DayBreak page reloads itself once after an update; on a phone or tablet, close and reopen the Home Assistant app if the panel still looks old.
 
-## Roadmap
+Alarms and profiles from older versions are converted automatically.
 
-- **0.5**: calendars with keyword rules (per calendar), travel to an appointment's location, more conditions
-- **1.0**: Home Assistant brands entry and submission to the HACS default store
+## Troubleshooting
+
+- **The panel looks old after an update:** restart Home Assistant, then close and reopen the app or reload the browser page.
+- **Holidays are not skipped:** add the Workday integration and choose its sensor under **Settings → Holiday source**.
+- **Travel time is always the fixed value:** set up Waze Travel Time, and make sure the event has a location and your home location is set.
+- **Logs:** add this to `configuration.yaml` and look at **Settings → System → Logs**:
+
+  ```yaml
+  logger:
+    logs:
+      custom_components.daybreak: debug
+  ```
 
 ## Development
 

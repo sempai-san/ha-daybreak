@@ -55,6 +55,12 @@ NOTIFY_EVENTS = [
     "last_call",
 ]
 COMBINE = ["max", "sum"]
+# Calendar rules: no alarm, a fixed time, X minutes before the event, or
+# another alarm takes over the day.
+CALENDAR_ACTIONS = ["skip", "time", "before", "alarm"]
+CALENDAR_MATCH = ["any", "all"]
+WAZE_REGIONS = ["auto", "eu", "us", "na", "il", "au"]
+VEHICLES = ["car", "taxi", "motorcycle"]
 WEATHER_KEYS = ["snow", "storm", "rain"]
 
 
@@ -430,6 +436,52 @@ CLIMATE_SCHEMA = vol.Schema(
     extra=vol.REMOVE_EXTRA,
 )
 
+CALENDAR_RULE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=True): cv.boolean,
+        # Empty = every calendar.
+        vol.Optional("calendars", default=list): vol.All(cv.ensure_list, [cv.entity_id]),
+        # Empty = every event matches.
+        vol.Optional("keywords", default=list): vol.All(
+            cv.ensure_list, [vol.All(cv.string, vol.Strip, vol.Length(min=1, max=64))]
+        ),
+        vol.Optional("match", default="any"): vol.In(CALENDAR_MATCH),
+        vol.Optional("action", default="skip"): vol.In(CALENDAR_ACTIONS),
+        vol.Optional("time", default="06:00"): _time,
+        # "before": minutes to get ready before leaving (or before the event).
+        vol.Optional("before", default=60): MINUTES,
+        vol.Optional("travel", default=False): cv.boolean,
+        # Also ring on days the repeat rule leaves out.
+        vol.Optional("any_day", default=False): cv.boolean,
+        # "alarm": the alarm that rings instead on that day.
+        vol.Optional("alarm", default=None): vol.Any(None, cv.string),
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
+CALENDAR_TRAVEL_SCHEMA = vol.Schema(
+    {
+        # Start of the trip: None = home, or a person/zone/device tracker.
+        vol.Optional("origin", default=None): vol.Any(None, cv.entity_id),
+        vol.Optional("region", default="auto"): vol.In(WAZE_REGIONS),
+        vol.Optional("vehicle", default="car"): vol.In(VEHICLES),
+        vol.Optional("avoid_toll", default=False): cv.boolean,
+        # Used without Waze, or when an event has no location.
+        vol.Optional("fallback", default=30): MINUTES,
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
+CALENDAR_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=False): cv.boolean,
+        # Checked from top to bottom: the first matching rule decides.
+        vol.Optional("rules", default=list): vol.All([CALENDAR_RULE_SCHEMA], vol.Length(max=20)),
+        vol.Optional("travel", default=dict): CALENDAR_TRAVEL_SCHEMA,
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
 ONCE_SCHEMA = vol.Schema(
     {
         vol.Required("date"): _date,
@@ -462,6 +514,7 @@ ALARM_SCHEMA = vol.Schema(
         vol.Optional("audio", default=dict): AUDIO_SCHEMA,
         vol.Optional("push", default=dict): PUSH_SCHEMA,
         vol.Optional("climate", default=dict): CLIMATE_SCHEMA,
+        vol.Optional("calendar", default=dict): CALENDAR_SCHEMA,
     },
     extra=vol.REMOVE_EXTRA,
 )

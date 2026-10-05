@@ -461,6 +461,7 @@ export class DaybreakPanel extends LitElement {
         .climateProfiles=${snapshot.climate_profiles ?? []}
         .runtime=${snapshot.alarms.find((a) => a.id === this._editing?.id)?.runtime}
         .holidayEntity=${snapshot.holiday_entity}
+        .alarms=${snapshot.alarms.map((a) => ({ id: a.id, name: a.name }))}
         .mode=${this._editorMode}
         .isNew=${!this._editing.id}
         .saving=${this._saving}

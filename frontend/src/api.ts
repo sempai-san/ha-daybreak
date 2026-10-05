@@ -217,7 +217,62 @@ export interface AlarmConfig {
   audio: AudioConfig;
   push: PushConfig;
   climate: ClimateConfig;
+  calendar: CalendarConfig;
 }
+
+export type CalendarAction = "skip" | "time" | "before" | "alarm";
+
+export interface CalendarRule {
+  enabled: boolean;
+  /** Empty = every calendar. */
+  calendars: string[];
+  /** Empty = every event. */
+  keywords: string[];
+  match: "any" | "all";
+  action: CalendarAction;
+  time: string;
+  before: number;
+  travel: boolean;
+  any_day: boolean;
+  alarm: string | null;
+}
+
+export interface CalendarConfig {
+  enabled: boolean;
+  rules: CalendarRule[];
+  travel: {
+    origin: string | null;
+    region: "auto" | "eu" | "us" | "na" | "il" | "au";
+    vehicle: "car" | "taxi" | "motorcycle";
+    avoid_toll: boolean;
+    fallback: number;
+  };
+}
+
+/** What a calendar rule decided for a day. */
+export interface CalendarDecision {
+  action: "skip" | "time" | "ring" | "alarm";
+  rule: number;
+  time: string | null;
+  summary: string | null;
+  event_start: string | null;
+  location: string | null;
+  travel: number | null;
+  alarm: string | null;
+}
+
+export interface CalendarPreviewDay {
+  date: string;
+  normal: boolean;
+  holiday: boolean;
+  /** Usual alarm time on a normal day. */
+  time: string | null;
+  events: { summary: string; start: string; all_day: boolean }[];
+  decision: CalendarDecision | null;
+}
+
+export const calendarPreview = (hass: HomeAssistant, alarm: Partial<AlarmConfig> & { id?: string }) =>
+  hass.callWS<{ days: CalendarPreviewDay[] }>({ type: "daybreak/calendar/preview", alarm });
 
 export type AlarmState =
   | "disabled"
@@ -249,6 +304,8 @@ export interface AlarmRuntime {
   climate_at?: string | null;
   climate_active?: boolean;
   climate_samples?: number;
+  calendar?: CalendarDecision | null;
+  calendar_days?: (CalendarDecision & { date: string })[];
 }
 
 export interface Alarm extends AlarmConfig {

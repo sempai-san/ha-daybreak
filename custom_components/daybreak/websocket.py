@@ -45,6 +45,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_profile_delete)
     websocket_api.async_register_command(hass, ws_sun)
     websocket_api.async_register_command(hass, ws_preview)
+    websocket_api.async_register_command(hass, ws_calendar_preview)
     websocket_api.async_register_command(hass, ws_once)
     websocket_api.async_register_command(hass, ws_ma_search)
     websocket_api.async_register_command(hass, ws_phones)
@@ -311,6 +312,22 @@ async def ws_preview(
         _error(connection, msg["id"], err)
         return
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "daybreak/calendar/preview", vol.Required("alarm"): dict}
+)
+@websocket_api.async_response
+async def ws_calendar_preview(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """What the calendar rules of an (unsaved) alarm do in the coming days."""
+    try:
+        days = await get_manager(hass).async_calendar_preview(msg["alarm"])
+    except (vol.Invalid, HomeAssistantError) as err:
+        _error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], {"days": days})
 
 
 @websocket_api.websocket_command(

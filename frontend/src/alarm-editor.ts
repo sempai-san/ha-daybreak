@@ -1,6 +1,9 @@
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
 import {
+  calendarPreview,
+  type CalendarConfig,
+  type CalendarPreviewDay,
   fetchPhones,
   fetchSun,
   type Phones,
@@ -24,7 +27,7 @@ import {
   type WeatherKey,
 } from "./api";
 import { t, weekdayNames, type StringKey } from "./i18n";
-import { capsOf, defaultClimate, defaultSettings, rampGradient } from "./model";
+import { capsOf, defaultCalendar, defaultClimate, defaultSettings, rampGradient } from "./model";
 import { shared } from "./styles";
 import { sunWakeMinutes } from "./components/sun-wake";
 import type { ShiftBand } from "./components/shift-line";
@@ -35,6 +38,7 @@ import {
   fireEvent,
   formatClock,
   formatDay,
+  formatTime,
   friendlyName,
   lightsOf,
   localDate,
@@ -52,6 +56,7 @@ import "./components/entity-picker";
 import "./components/audio-source";
 import "./components/audio-line";
 import "./components/climate-settings";
+import "./components/calendar-rules";
 
 const PHASES: Phase[] = ["light_start", "wake", "snooze", "stop"];
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
@@ -62,7 +67,7 @@ const DAY_PRESETS: [StringKey, number[]][] = [
   ["every_day", [0, 1, 2, 3, 4, 5, 6]],
 ];
 
-type Section = "time" | "cond" | "light" | "audio" | "climate" | "push" | "act" | "none" | "fb";
+type Section = "time" | "cond" | "cal" | "light" | "audio" | "climate" | "push" | "act" | "none" | "fb";
 
 /**
  * Full-page editor for one alarm. Emits daybreak-save {alarm, newProfile?},
@@ -78,6 +83,8 @@ export class DaybreakAlarmEditor extends LitElement {
   /** Runtime of the saved alarm (planned climate start, learned runs). */
   @property({ attribute: false }) runtime?: AlarmRuntime;
   @property({ attribute: false }) holidayEntity: string | null = null;
+  /** All alarms (for "another alarm rings instead"). */
+  @property({ attribute: false }) alarms: { id: string; name: string }[] = [];
   @property() mode: EditorMode = "normal";
   @property({ type: Boolean }) isNew = false;
   @property({ type: Boolean }) saving = false;
@@ -86,6 +93,7 @@ export class DaybreakAlarmEditor extends LitElement {
   @state() private _open: Record<Section, boolean> = {
     time: true,
     cond: false,
+    cal: false,
     light: true,
     audio: false,
     climate: false,
@@ -103,6 +111,10 @@ export class DaybreakAlarmEditor extends LitElement {
   @state() private _overrideOpen = -1;
   @state() private _phones?: Phones;
   private _sunDate = "";
+  @state() private _calPreview?: CalendarPreviewDay[];
+  @state() private _calLoading = false;
+  private _calKey = "";
+  private _calTimer?: number;
 
   static styles = [
     shared,
@@ -437,6 +449,7 @@ export class DaybreakAlarmEditor extends LitElement {
         .then((p) => (this._phones = p))
         .catch(() => undefined);
     }
+    this._queueCalendarPreview();
     const date = this._nextDate();
     if (this.hass && date !== this._sunDate) {
       this._sunDate = date;
@@ -943,12 +956,68 @@ export class DaybreakAlarmEditor extends LitElement {
       <div class="cal">
         ${weekdayNames(hass).map((n) => html`<span class="head">${n}</span>`)}
         ${days.map((day) => {
-          const on = day >= today && (dayMatches(d, day) || d.once?.date === day);
-          const skip = day === d.skip_date;
+          const cal = this._calDecision(day);
+          const on = day >= today && (cal ? ["time", "ring"].includes(cal) : dayMatches(d, day) || d.once?.date === day);
+          const skip = day === d.skip_date || (day >= today && (cal === "skip" || cal === "alarm") && dayMatches(d, day));
           return html`<span class="${on ? "on" : ""} ${skip ? "skip" : ""}" title=${formatDay(hass, day)}>${Number(day.slice(8))}</span>`;
         })}
       </div>
     </div>`;
+  }
+
+  /** Action of a calendar rule on a day (from the preview or the saved runtime). */
+  private _calDecision(day: string): string | undefined {
+    if (!this.d.calendar?.enabled) return undefined;
+    if (this._calPreview) return this._calPreview.find((x) => x.date === day)?.decision?.action;
+    return this.runtime?.calendar_days?.find((x) => x.date === day)?.action;
+  }
+
+  // ------------------------------------------------------------- calendar
+
+  private _queueCalendarPreview() {
+    const cal = this.d?.calendar;
+    if (!this.hass || !cal?.enabled || !cal.rules.length || !this._open.cal) return;
+    const key = JSON.stringify([cal, this.d.repeat, this.d.wake, this.d.enabled]);
+    if (key === this._calKey) return;
+    this._calKey = key;
+    window.clearTimeout(this._calTimer);
+    this._calTimer = window.setTimeout(() => {
+      const hass = this.hass!;
+      this._calLoading = true;
+      const { name, kind, wake, repeat, light_lead, calendar } = this.d;
+      calendarPreview(hass, { id: this.alarm?.id, name, kind, wake, repeat, light_lead, calendar })
+        .then((res) => {
+          if (this._calKey === key) this._calPreview = res.days;
+        })
+        .catch(() => undefined)
+        .finally(() => (this._calLoading = false));
+    }, 400);
+  }
+
+  private _calendarSection() {
+    const hass = this.hass;
+    const c = this.d.calendar ?? defaultCalendar();
+    const set = (change: Partial<CalendarConfig>) => this._sub("calendar", change);
+    const active = c.rules.filter((r) => r.enabled).length;
+    const next = this.runtime?.calendar_days?.[0];
+    const nextText = next
+      ? `${formatDay(hass, next.date)}: ${next.action === "skip" || next.action === "alarm"
+          ? t(hass, "calp_skip")
+          : next.time ? formatTime(hass, next.time) : ""}${next.summary ? ` (${next.summary})` : ""}`
+      : "";
+    const summary = c.enabled ? [t(hass, "cal_summary", { n: active }), nextText].filter(Boolean).join(" · ") : t(hass, "off");
+    const others = this.alarms.filter((a) => a.id !== this.alarm?.id);
+    return this._section("cal", t(hass, "section_calendar"), summary, () => html`
+      <div class="row">
+        <div class="grow"><div>${t(hass, "calr_on")}</div><div class="muted">${t(hass, "calr_on_d")}</div></div>
+        ${this._toggle(c.enabled, (v) => set({ enabled: v }), t(hass, "calr_on"))}
+      </div>
+      ${c.enabled
+        ? html`<db-calendar-rules .hass=${hass} .config=${c} .alarms=${others}
+            .preview=${this._calPreview} .loading=${this._calLoading}
+            @calendar-change=${(ev: CustomEvent) => set(ev.detail)}></db-calendar-rules>`
+        : nothing}
+    `);
   }
 
   private _holidayTile() {
@@ -1005,16 +1074,11 @@ export class DaybreakAlarmEditor extends LitElement {
   }
 
   private _condBody() {
-    const hass = this.hass;
     const d = this.d;
     const kindWake = d.kind === "wake";
     return html`
       ${this._presenceBlock()}
       ${kindWake ? html`<div class="divider"></div>${this._shiftBlock()}` : nothing}
-      <div class="tile row soon">
-        <div class="grow"><div>${t(hass, "calendar_title")}</div><div class="muted">${t(hass, "calendar_hint")}</div></div>
-        <span class="badge">${t(hass, "from_version", { v: "0.4" })}</span>
-      </div>
     `;
   }
 
@@ -1732,6 +1796,7 @@ export class DaybreakAlarmEditor extends LitElement {
         ${this._head()}
         ${this._timeSection()}
         ${(kind === "wake" || !this._simple) && this._has("conditions") ? this._condSection() : nothing}
+        ${this._has("calendar", !!this.d.calendar?.enabled) ? this._calendarSection() : nothing}
         ${this._lightSection()}
         ${kind === "wake" && this._has("audio", this.d.audio.enabled) ? this._audioSection() : nothing}
         ${kind === "wake" && this._has("climate", !!this.d.climate?.enabled) ? this._climateSection() : nothing}
