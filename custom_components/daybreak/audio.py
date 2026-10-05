@@ -42,6 +42,10 @@ class AlarmAudio:
         context: Context,
         variables: dict[str, Any],
         on_button: Callable[[], None],
+        *,
+        speed: float = 1.0,
+        on_problem: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.hass = hass
         self.audio = audio
@@ -49,12 +53,16 @@ class AlarmAudio:
         self.context = context
         self.variables = variables
         self._on_button = on_button
+        self._on_problem = on_problem
+        self._on_event = on_event
+        # Time lapse of a test run: the ramp runs this many times faster.
+        self._speed = max(speed, 1.0)
         self._saved: dict[str, float] = {}
         self._volume: float = audio["volume"][0]
         self._ramp_from = audio["volume"][0]
         self._ramp_to = audio["volume"][1]
         self._ramp_start: datetime | None = None
-        self._ramp_seconds = audio["ramp"] * 60
+        self._ramp_seconds = audio["ramp"] * 60 / self._speed
         self._ramp_unsub: CALLBACK_TYPE | None = None
         self._state_unsub: CALLBACK_TYPE | None = None
         self._quiet_until = dt_util.utcnow()
@@ -65,7 +73,16 @@ class AlarmAudio:
 
     # -------------------------------------------------------------- helpers
 
-    async def _call(self, domain: str, service: str, data: dict[str, Any], **target: Any) -> None:
+    async def _call(
+        self,
+        domain: str,
+        service: str,
+        data: dict[str, Any],
+        *,
+        report: bool = True,
+        **target: Any,
+    ) -> bool:
+        """Call a speaker service; False (and a reported problem) if it failed."""
         self._quiet_until = dt_util.utcnow() + QUIET
         try:
             await self.hass.services.async_call(
@@ -76,10 +93,14 @@ class AlarmAudio:
                 blocking=True,
                 context=self.context,
             )
-        except Exception:  # a broken speaker must not stop the alarm
+        except Exception as err:  # a broken speaker must not stop the alarm
             _LOGGER.warning(
                 "DayBreak: %s.%s failed for %s", domain, service, self.players, exc_info=True
             )
+            if report and self._on_problem:
+                self._on_problem(f"{domain}.{service}: {err}")
+            return False
+        return True
 
     async def _set_volume(self, percent: float) -> None:
         self._volume = percent
@@ -88,23 +109,38 @@ class AlarmAudio:
     async def _play_source(self, source: dict[str, Any]) -> None:
         if source["type"] == "music_assistant" and source["media_id"]:
             if self.hass.services.has_service("music_assistant", "play_media"):
-                await self._call(
+                data = {"media_id": source["media_id"], "enqueue": "replace"}
+                name = source.get("name") or source["media_id"]
+                if await self._call(
                     "music_assistant",
                     "play_media",
-                    {
-                        "media_id": source["media_id"],
-                        "media_type": source["media_type"],
-                        "enqueue": "replace",
-                    },
-                )
+                    {**data, "media_type": source["media_type"]},
+                    report=False,
+                ):
+                    self._event("music_playing", source=name)
+                    return
+                # A wrong media type makes Music Assistant find nothing: let it
+                # work the type out from the uri or name itself.
+                if await self._call("music_assistant", "play_media", data):
+                    self._event("music_retry", source=name)
                 return
             _LOGGER.warning("DayBreak: Music Assistant is not available")
-        if source["type"] == "url" and source["url"]:
-            await self._call(
+            if self._on_problem:
+                self._on_problem("Music Assistant is not available")
+        if (
+            source["type"] == "url"
+            and source["url"]
+            and await self._call(
                 "media_player",
                 "play_media",
                 {"media_content_id": source["url"], "media_content_type": "music"},
             )
+        ):
+            self._event("music_playing", source=source["url"].rsplit("/", 1)[-1])
+
+    def _event(self, event: str, **info: Any) -> None:
+        if self._on_event:
+            self._on_event(event, info)
 
     def _has_music(self) -> bool:
         source = self._source
@@ -131,7 +167,8 @@ class AlarmAudio:
         await self._play_source(self._source)
         self._ramp_start = dt_util.utcnow()
         if self._ramp_seconds and (self._ramp_to != self._ramp_from or self.audio["curve"]):
-            self._ramp_unsub = async_track_time_interval(self.hass, self._ramp_tick, RAMP_INTERVAL)
+            interval = max(RAMP_INTERVAL / self._speed, timedelta(seconds=1))
+            self._ramp_unsub = async_track_time_interval(self.hass, self._ramp_tick, interval)
         else:
             await self._set_volume(self._ramp_to)
 

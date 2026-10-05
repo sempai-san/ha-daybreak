@@ -40,8 +40,9 @@ import "./views/profiles-view";
 import "./views/last-call-view";
 import "./views/climate-view";
 import "./views/settings-view";
+import "./views/history-view";
 
-type Tab = "alarms" | "profiles" | "last_call" | "climate" | "settings";
+type Tab = "alarms" | "history" | "profiles" | "last_call" | "climate" | "settings";
 const KINDS: Kind[] = ["wake", "sleep", "kids"];
 const KIND_GRADIENT: Record<Kind, string> = {
   wake: "linear-gradient(90deg,#3a1a12,#b4441f,#ff8a4c,#ffd9a0)",
@@ -417,7 +418,7 @@ export class DaybreakPanel extends LitElement {
 
   render() {
     const hass = this.hass;
-    const tabs: Tab[] = ["alarms", "profiles", "last_call", "climate", "settings"];
+    const tabs: Tab[] = ["alarms", "history", "profiles", "last_call", "climate", "settings"];
     return html`
       <div class="toolbar">
         <ha-menu-button .hass=${hass} .narrow=${this.narrow}></ha-menu-button>
@@ -455,6 +456,7 @@ export class DaybreakPanel extends LitElement {
       return html`<daybreak-alarm-editor
         .hass=${this.hass}
         .alarm=${this._editing.alarm}
+        .alarmId=${this._editing.id}
         .settings=${snapshot.settings}
         .lightProfiles=${snapshot.light_profiles}
         .lastCallProfiles=${snapshot.last_call_profiles}
@@ -484,6 +486,8 @@ export class DaybreakPanel extends LitElement {
         return html`<db-last-call-view .hass=${this.hass} .snapshot=${snapshot}></db-last-call-view>`;
       case "climate":
         return html`<db-climate-view .hass=${this.hass} .snapshot=${snapshot}></db-climate-view>`;
+      case "history":
+        return html`<db-history-view .hass=${this.hass} .snapshot=${snapshot} .narrow=${this.narrow}></db-history-view>`;
       case "settings":
         return html`<db-settings-view .hass=${this.hass} .snapshot=${snapshot}></db-settings-view>`;
       default:

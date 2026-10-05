@@ -108,6 +108,7 @@ from .models import (
     BUILTIN_LIGHT_PROFILES,
     merge_alarm,
     migrate_store_v1,
+    new_id,
     validate_alarm,
     validate_climate_profile,
     validate_last_call_profile,
@@ -143,6 +144,9 @@ TRAVEL_MAX_AGE = timedelta(hours=6)
 TRAVEL_LIVE_AGE = timedelta(minutes=10)
 # Within this time before an event the travel time uses live traffic.
 TRAVEL_LIVE = timedelta(hours=3)
+# The history keeps this many runs, each with at most this many steps.
+HISTORY_MAX = 30
+HISTORY_STEPS = 40
 # Ringing effects.
 EFFECT_INTERVAL = timedelta(seconds=2)
 PULSE_LOW = 0.35
@@ -174,6 +178,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "device_unavailable": {
         "en": "Lights not available: {lights}.",
         "de": "Lampen nicht erreichbar: {lights}.",
+    },
+    "audio_failed": {
+        "en": "Audio could not be started: {error}",
+        "de": "Audio konnte nicht gestartet werden: {error}",
     },
     "failed": {
         "en": "Could not control the lights: {lights}.",
@@ -261,6 +269,12 @@ class AlarmRun:
     shift: ShiftResult = field(default_factory=ShiftResult)
     audio: AlarmAudio | None = None
     audio_timer: CALLBACK_TYPE | None = None
+    # The alarm settings this run uses (a test may run unsaved settings).
+    alarm: dict[str, Any] = field(default_factory=dict)
+    # Test runs: time lapse factor (6 = one minute takes 10 s); 0 = classic test.
+    speed: float = 0.0
+    # This run's entry in the history (shared with DaybreakManager._history).
+    journal: dict[str, Any] = field(default_factory=dict)
 
     @property
     def lights(self) -> list[str]:
@@ -324,6 +338,8 @@ class AlarmRuntime:
     climate: ClimateRun | None = None
     # Climate runs of past alarms still waiting to restore/switch off.
     climate_after: list[ClimateRun] = field(default_factory=list)
+    # Problems of the last run (speaker or lamp errors), shown in the editor.
+    problems: list[dict[str, Any]] = field(default_factory=list)
 
     def cancel_climate(self) -> None:
         if self.climate_timer:
@@ -347,6 +363,8 @@ class DaybreakManager:
         self.climate_profiles: dict[str, dict[str, Any]] = {}
         # Learned heat-up/cool-down speed per alarm: [{per_degree, outdoor}].
         self._climate_learn: dict[str, list[dict[str, Any]]] = {}
+        # The last runs (newest first) with their steps, for the history view.
+        self._history: list[dict[str, Any]] = []
         # Base alarm time (ISO, UTC) up to which an alarm has been handled. Prevents a
         # stopped sunrise from starting again before its alarm time is reached.
         self._handled: dict[str, str] = {}
@@ -390,6 +408,7 @@ class DaybreakManager:
             self.alarms[alarm["id"]] = alarm
         self._handled = dict(data.get("handled", {}))
         self._climate_learn = dict(data.get("climate_learn", {}))
+        self._history = [h for h in data.get("history", []) if isinstance(h, dict)][:HISTORY_MAX]
         # Create every runtime first: listeners of the dispatches below read all alarms.
         self._runtime = {alarm_id: AlarmRuntime() for alarm_id in self.alarms}
         for alarm_id in self.alarms:
@@ -454,6 +473,7 @@ class DaybreakManager:
             "climate_profiles": list(self.climate_profiles.values()),
             "handled": self._handled,
             "climate_learn": self._climate_learn,
+            "history": self._history,
         }
 
     # ------------------------------------------------------------------- CRUD
@@ -701,6 +721,173 @@ class DaybreakManager:
             return STATE_SCHEDULED
         return STATE_IDLE
 
+    def _alarm_of(self, alarm_id: str) -> dict[str, Any]:
+        """The settings a running alarm uses, else the stored alarm."""
+        runtime = self._runtime.get(alarm_id)
+        if runtime and runtime.run and runtime.run.alarm:
+            return runtime.run.alarm
+        return self.alarms[alarm_id]
+
+    @callback
+    def _problem(self, alarm_id: str, part: str, message: str) -> None:
+        """Remember a problem of the running alarm; tell the user on real runs."""
+        runtime = self._runtime.get(alarm_id)
+        if not runtime:
+            return
+        first = not any(p["part"] == part for p in runtime.problems)
+        runtime.problems.append(
+            {"part": part, "message": message, "time": dt_util.utcnow().isoformat()}
+        )
+        del runtime.problems[:-10]
+        run = runtime.run
+        self._step(run.journal if run else None, f"{part}_failed", level="error", detail=message)
+        if first and part == "audio" and not (run and run.test):
+            self._async_send_message(alarm_id, "failed", key="audio_failed", error=message)
+        self._notify(alarm_id)
+
+    @property
+    def history(self) -> list[dict[str, Any]]:
+        return self._history
+
+    def _journal_new(
+        self,
+        alarm_id: str,
+        alarm: dict[str, Any],
+        *,
+        test: bool,
+        alarm_time: datetime,
+        base: datetime | None = None,
+    ) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "id": new_id(),
+            "alarm_id": alarm_id,
+            "name": alarm["name"],
+            "kind": alarm["kind"],
+            "test": test,
+            "speed": None,
+            "base": (base or alarm_time).isoformat(),
+            "alarm_time": alarm_time.isoformat(),
+            "started": dt_util.utcnow().isoformat(),
+            "ended": None,
+            "result": "running",
+            "steps": [],
+        }
+        self._history.insert(0, entry)
+        del self._history[HISTORY_MAX:]
+        return entry
+
+    def _occurrence(self, alarm_id: str, base: datetime) -> dict[str, Any]:
+        """The history entry of one alarm occurrence; created by the first check."""
+        key = base.isoformat()
+        for entry in self._history:
+            if entry["alarm_id"] == alarm_id and entry.get("base") == key and not entry["test"]:
+                return entry
+        entry = self._journal_new(
+            alarm_id, self.alarms[alarm_id], test=False, alarm_time=base, base=base
+        )
+        entry["result"] = "planned"
+        return entry
+
+    @callback
+    def _step(
+        self, entry: dict[str, Any] | None, step: str, *, level: str = "ok", **info: Any
+    ) -> None:
+        """Add a step to a history entry ("checks", "start", "ring", ...).
+
+        ``level``: ok, info (nothing to do), warn (worth knowing) or error.
+        """
+        if not entry:
+            return
+        steps = entry["steps"]
+        if len(steps) >= HISTORY_STEPS:
+            return
+        steps.append(
+            {
+                "t": dt_util.utcnow().isoformat(),
+                "step": step,
+                "ok": level != "error",
+                "level": level,
+                **info,
+            }
+        )
+        if level == "error":
+            entry["problem"] = True
+        elif level == "warn":
+            entry["warn"] = True
+        self._save()
+        async_dispatcher_send(self.hass, SIGNAL_ALARMS_CHANGED)
+
+    @callback
+    def _close_stale_plans(self, alarm_id: str, base: datetime | None) -> None:
+        """Planned occurrences that will not ring any more (time changed, switched off)."""
+        key = base.isoformat() if base else None
+        for entry in self._history:
+            if (
+                entry["alarm_id"] == alarm_id
+                and entry["result"] == "planned"
+                and entry.get("base") != key
+            ):
+                entry["result"] = "cancelled"
+                entry["ended"] = dt_util.utcnow().isoformat()
+                self._step(entry, "cancelled", level="info")
+
+    async def _async_check_missed(self) -> None:
+        """Log days an alarm would normally ring but did not, with the reason."""
+        now = dt_util.utcnow()
+        tz = self._tz()
+        for alarm_id, alarm in list(self.alarms.items()):
+            if not alarm["enabled"] or alarm["kind"] != "wake":
+                continue
+            today = dt_util.as_local(now).date()
+            for day in (today - timedelta(days=1), today):
+                if not day_matches(alarm, day):
+                    continue
+                when = wake_time_on(alarm, day, tz, self._sun)
+                if when is None or when > now or now - when > timedelta(hours=20):
+                    continue
+                same_day = [
+                    e
+                    for e in self._history
+                    if e["alarm_id"] == alarm_id
+                    and not e["test"]
+                    and e.get("base")
+                    and dt_util.as_local(dt_util.parse_datetime(e["base"])).date() == day
+                ]
+                if any(e["result"] != "cancelled" for e in same_day):
+                    continue
+                decision = self._decisions.get(alarm_id, {}).get(day)
+                if day.isoformat() == alarm.get("skip_date"):
+                    reason, info = "manual", {}
+                elif decision and decision.action in ("skip", "alarm"):
+                    reason = "handed_over" if decision.action == "alarm" else "calendar"
+                    target = self.alarms.get(decision.alarm or "")
+                    info = {
+                        "detail": decision.event.summary if decision.event else "",
+                        "rule": decision.rule + 1,
+                        "other": target["name"] if target else "",
+                    }
+                elif self._is_holiday(day) and not alarm["wake_on_holidays"]:
+                    reason, info = "holiday", {}
+                else:
+                    continue
+                if same_day:
+                    # Checks had already run for it: continue that entry.
+                    entry = same_day[0]
+                else:
+                    entry = self._journal_new(
+                        alarm_id, alarm, test=False, alarm_time=when, base=when
+                    )
+                entry["started"] = when.isoformat()
+                self._step(entry, "skipped", level="info", reason=reason, **info)
+                entry["ended"] = entry["started"]
+                entry["result"] = "skipped"
+                # Keep the history in time order.
+                self._history.sort(key=lambda e: e["started"], reverse=True)
+
+    def _journal(self, alarm_id: str) -> dict[str, Any] | None:
+        runtime = self._runtime.get(alarm_id)
+        return runtime.run.journal if runtime and runtime.run else None
+
     def next_alarm(self, alarm_id: str) -> datetime | None:
         return self._runtime[alarm_id].next_alarm
 
@@ -727,6 +914,8 @@ class DaybreakManager:
             "snooze_minutes": self.snooze_minutes(alarm),
             "snooze_count": self.snooze_count(alarm),
             "test": bool(run and run.test),
+            "test_speed": run.speed if run and run.test else None,
+            "problems": runtime.problems,
             "alarm_time": iso(run.alarm_time) if run else None,
             "light_start": iso(run.light_start) if run else None,
             "sunrise_start": iso(run.light_start) if run else None,
@@ -852,6 +1041,8 @@ class DaybreakManager:
             day_rule=self._decisions.get(alarm_id, {}).get,
         )
         runtime.base_time = base
+        if not runtime.run:
+            self._close_stale_plans(alarm_id, base)
         if runtime.shift_for != base:
             runtime.shift = ShiftResult()
             runtime.shift_for = base
@@ -907,8 +1098,15 @@ class DaybreakManager:
         self._save()
         alarm = self.alarms[alarm_id]
         presence = alarm["presence"]
-        if presence["skip_when_away"] and not self._anyone_home(self._presence_entities(alarm)):
+        entities = self._presence_entities(alarm)
+        if presence["skip_when_away"] and not self._anyone_home(entities):
             _LOGGER.debug("DayBreak: nobody home, skipping %s", alarm["name"])
+            entry = self._occurrence(alarm_id, base)
+            entry["alarm_time"] = (base - timedelta(minutes=runtime.shift.minutes)).isoformat()
+            entry["started"] = dt_util.utcnow().isoformat()
+            self._step(entry, "skipped", level="warn", reason="away")
+            entry["ended"] = entry["started"]
+            entry["result"] = "skipped"
             self._fire(
                 EVENT_ALARM_SKIPPED, alarm_id, {"skipped": base.isoformat(), "reason": "away"}
             )
@@ -920,6 +1118,13 @@ class DaybreakManager:
                 self._save()
             self._schedule(alarm_id)
             return
+        if entities and presence["skip_when_away"]:
+            home = [
+                self._friendly(e)
+                for e in entities
+                if (st := self.hass.states.get(e)) and st.state in _HOME_STATES
+            ]
+            self._step(self._occurrence(alarm_id, base), "presence", detail=", ".join(home))
         alarm_time = base - timedelta(minutes=runtime.shift.minutes)
         light_start = alarm_time - timedelta(minutes=self._lead(alarm, base))
         await self._async_start_run(
@@ -1019,6 +1224,19 @@ class DaybreakManager:
         start_at = when - timedelta(minutes=lead)
         runtime.climate_at = start_at
         self._notify(alarm_id)
+        if waiting and runtime.base_time:
+            if alarm["climate"]["presence"] and not self._anyone_home(
+                self._presence_entities(alarm)
+            ):
+                why = "away"
+            elif not outdoor_allows(s, outdoor):
+                why = "outdoor"
+            else:
+                why = "window"
+            entry = self._occurrence(alarm_id, runtime.base_time)
+            if entry.get("climate_wait") != why:
+                entry["climate_wait"] = why
+                self._step(entry, "climate_wait", level="info", reason=why, outdoor=outdoor)
         if waiting or now < start_at - timedelta(seconds=30):
             # Not yet (or conditions not met): look again later; a learned
             # start is re-estimated with fresh values every time.
@@ -1044,6 +1262,26 @@ class DaybreakManager:
         run.base = runtime.base_time
         runtime.climate = run
         await run.async_start()
+        if runtime.base_time:
+            entry = self._occurrence(alarm_id, runtime.base_time)
+            if run.active:
+                self._step(
+                    entry,
+                    "climate_start",
+                    mode=s["mode"],
+                    target=s["temperature"],
+                    lead=lead,
+                    learned=s["start"] == "learned",
+                    devices=len(run.active),
+                    paused=run.paused,
+                )
+            else:
+                self._step(
+                    entry,
+                    "climate_not_needed",
+                    level="info",
+                    room=room_temperature(self.hass, config),
+                )
         self._notify(alarm_id)
 
     @callback
@@ -1075,6 +1313,7 @@ class DaybreakManager:
     # ----------------------------------------------------------------- shifts
 
     async def _async_shift_tick(self) -> None:
+        await self._async_check_missed()
         now = dt_util.utcnow()
         for alarm_id, alarm in list(self.alarms.items()):
             runtime = self._runtime.get(alarm_id)
@@ -1105,8 +1344,14 @@ class DaybreakManager:
         try:
             inputs = await self._async_shift_inputs(alarm, base)
             result = evaluate(alarm, self.settings, inputs, dt_util.as_local(base))
-        except Exception:
+        except Exception as err:
             _LOGGER.exception("DayBreak: shift evaluation failed for %s", alarm["name"])
+            self._step(
+                self._journal(alarm_id) or self._occurrence(alarm_id, base),
+                "checks_failed",
+                level="error",
+                detail=str(err),
+            )
             return
         if alarm_id not in self.alarms:
             return
@@ -1119,6 +1364,21 @@ class DaybreakManager:
         holder = run or runtime
         old = holder.shift.minutes
         changed_parts = result.parts != holder.shift.parts
+        entry = run.journal if run else self._occurrence(alarm_id, base)
+        sig = [result.minutes, sorted(p["reason"] for p in result.parts)]
+        if entry.get("checks") != sig:
+            entry["checks"] = sig
+            self._step(
+                entry,
+                "checks",
+                level="warn" if result.minutes else "ok",
+                minutes=result.minutes,
+                reasons=sorted({p["reason"] for p in result.parts}),
+                weather=inputs.condition,
+                temperature=inputs.temperature,
+                warning=inputs.warning_level or None,
+                travel=round(inputs.travel_minutes) if inputs.travel_minutes is not None else None,
+            )
         holder.shift = result
         if not run:
             runtime.shift_for = base
@@ -1502,9 +1762,12 @@ class DaybreakManager:
         *,
         test: bool,
         shortened: bool = False,
+        alarm: dict[str, Any] | None = None,
+        speed: float = 0.0,
     ) -> None:
-        alarm = self.alarms[alarm_id]
+        alarm = deepcopy(alarm or self.alarms[alarm_id])
         runtime = self._runtime[alarm_id]
+        runtime.problems = []
         if runtime.off_later:
             runtime.off_later()
             runtime.off_later = None
@@ -1519,12 +1782,48 @@ class DaybreakManager:
             context=Context(),
             test=test,
             shift=runtime.shift if not test else ShiftResult(),
+            alarm=alarm,
+            speed=speed if test else 0.0,
         )
         if shortened and light_start < now:
             run.anchor_time = now
         runtime.run = run
+        if test:
+            run.journal = self._journal_new(alarm_id, alarm, test=True, alarm_time=alarm_time)
+            run.journal["speed"] = run.speed or None
+        else:
+            run.journal = self._occurrence(alarm_id, base)
+            run.journal["alarm_time"] = alarm_time.isoformat()
+            run.journal["started"] = now.isoformat()
+            run.journal["result"] = "running"
+            day = dt_util.as_local(base).date()
+            if decision := self._decisions.get(alarm_id, {}).get(day):
+                other = self.alarms.get(decision.alarm or "")
+                self._step(
+                    run.journal,
+                    "calendar",
+                    level="info",
+                    action=decision.action,
+                    rule=decision.rule + 1,
+                    detail=decision.event.summary if decision.event else "",
+                    time=decision.time.isoformat() if decision.time else None,
+                    travel=decision.travel,
+                    other=other["name"] if other else "",
+                )
+            if self._is_holiday(day) and not alarm["wake_on_holidays"] and decision:
+                self._step(run.journal, "holiday_override", level="info")
+        self._step(
+            run.journal,
+            "start",
+            lights=len(run.lights),
+            light_start=light_start.isoformat(),
+            shift=run.shift.minutes,
+        )
+        if runtime.climate and runtime.climate.active and not test:
+            self._step(run.journal, "climate")
         if missing:
             self._async_send_message(alarm_id, "device_unavailable", lights=", ".join(missing))
+            self._step(run.journal, "lights_missing", level="error", detail=", ".join(missing))
         lights = run.lights
         if lights and alarm["stop_on_light_off"]:
             run.unsubs.append(
@@ -1548,11 +1847,17 @@ class DaybreakManager:
                 run.context,
                 self._variables(alarm_id, run),
                 partial(self._on_speaker_button, alarm_id),
+                speed=run.speed or 1.0,
+                on_problem=partial(self._problem, alarm_id, "audio"),
+                on_event=partial(self._audio_event, run),
             )
             audio_at = alarm_time - timedelta(minutes=alarm["audio"]["lead"])
-            if test:
+            if run.speed:
+                audio_at = alarm_time - timedelta(seconds=alarm["audio"]["lead"] * 60 / run.speed)
+            elif test:
                 audio_at = max(light_start, alarm_time - timedelta(seconds=20))
             if audio_at <= now:
+                self._step(run.journal, "music", players=len(run.audio.players))
                 self.hass.async_create_task(run.audio.async_start(), eager_start=False)
             else:
                 run.audio_timer = async_track_point_in_utc_time(
@@ -1574,15 +1879,21 @@ class DaybreakManager:
             return
         await self._async_step(alarm_id)
 
+    @callback
+    def _audio_event(self, run: AlarmRun, event: str, info: dict[str, Any]) -> None:
+        """Music playing (or played on the second try)."""
+        self._step(run.journal, event, level="warn" if event == "music_retry" else "ok", **info)
+
     async def _async_audio_start(self, alarm_id: str) -> None:
         runtime = self._runtime.get(alarm_id)
         if runtime and (run := runtime.run) and run.audio:
             run.audio_timer = None
+            self._step(run.journal, "music", players=len(run.audio.players))
             await run.audio.async_start()
 
     def _variables(self, alarm_id: str, run: AlarmRun) -> dict[str, Any]:
         """Template variables for announcements."""
-        alarm = self.alarms[alarm_id]
+        alarm = run.alarm or self.alarms[alarm_id]
         weather = self.settings["weather_entity"]
         state = self.hass.states.get(weather) if weather else None
         return {
@@ -1601,6 +1912,7 @@ class DaybreakManager:
         runtime = self._runtime.get(alarm_id)
         if not runtime or not (run := runtime.run):
             return
+        self._step(run.journal, "button")
         if run.last_call_started:
             self._end_run(alarm_id, END_STOPPED)
         elif run.ring_started:
@@ -1812,17 +2124,22 @@ class DaybreakManager:
                 run.failed.update(new)
                 for alarm_id, runtime in self._runtime.items():
                     if runtime.run is run:
-                        self._async_send_message(
-                            alarm_id,
-                            "failed",
-                            lights=", ".join(self._friendly(x) for x in sorted(new)),
+                        names = ", ".join(self._friendly(x) for x in sorted(new))
+                        self._async_send_message(alarm_id, "failed", lights=names)
+                        self._step(run.journal, "light_failed", level="error", detail=names)
+                        runtime.problems.append(
+                            {
+                                "part": "light",
+                                "message": names,
+                                "time": dt_util.utcnow().isoformat(),
+                            }
                         )
 
     async def _async_ring(self, alarm_id: str) -> None:
         runtime = self._runtime.get(alarm_id)
         if not runtime or not (run := runtime.run) or run.last_call_started:
             return
-        alarm = self.alarms[alarm_id]
+        alarm = run.alarm
         run.cancel_timer()
         now = dt_util.utcnow()
 
@@ -1835,6 +2152,7 @@ class DaybreakManager:
         was_snoozed = run.snooze_until is not None
         run.snooze_until = None
         first_ring = run.ring_started is None
+        self._step(run.journal, "ring" if first_ring else "ring_again")
         run.ring_started = run.ring_started or now
         run.lights_off_by_us = False
 
@@ -1844,7 +2162,9 @@ class DaybreakManager:
             self._async_run_actions(alarm_id, run, "wake")
             run.timer = async_call_later(
                 self.hass,
-                TEST_MAX_RING if run.test else KIDS_GREEN,
+                (KIDS_GREEN / run.speed if run.speed else TEST_MAX_RING)
+                if run.test
+                else KIDS_GREEN,
                 self._job(self._end_run, alarm_id, END_AUTO_STOP),
             )
             self._notify(alarm_id)
@@ -1852,7 +2172,9 @@ class DaybreakManager:
 
         if first_ring:
             window = timedelta(minutes=self.snooze_minutes(alarm) * self.snooze_count(alarm))
-            if run.test:
+            if run.speed:
+                window = window / run.speed
+            elif run.test:
                 window = min(window, TEST_MAX_RING)
             run.snooze_end = run.ring_started + window
             run.end_timer = async_track_point_in_utc_time(
@@ -1907,7 +2229,7 @@ class DaybreakManager:
         if not runtime or not (run := runtime.run):
             return
         run.end_timer = None
-        if self.alarms[alarm_id]["last_call"]["enabled"] and not run.last_call_started:
+        if run.alarm["last_call"]["enabled"] and not run.last_call_started:
             await self._async_last_call(alarm_id)
         else:
             self._end_run(alarm_id, END_AUTO_STOP)
@@ -1917,12 +2239,13 @@ class DaybreakManager:
         runtime = self._runtime.get(alarm_id)
         if not runtime or not (run := runtime.run) or run.last_call_started:
             return
-        alarm = self.alarms[alarm_id]
+        alarm = run.alarm
         profile = self.last_call_profile(alarm["last_call"]["profile"])
         run.cancel_timer()
         run.stop_effect()
         run.snooze_until = None
         run.last_call_started = dt_util.utcnow()
+        self._step(run.journal, "last_call", profile=profile["name"])
         run.lights_off_by_us = False
 
         lights = self._resolve_lights(profile["targets"]) or run.lights
@@ -1964,7 +2287,9 @@ class DaybreakManager:
             self._async_run_script(alarm_id, run, profile["actions"], "last_call")
 
         duration = timedelta(minutes=alarm["last_call"]["duration"] or profile["duration"])
-        if run.test:
+        if run.speed:
+            duration = duration / run.speed
+        elif run.test:
             duration = min(duration, TEST_LAST_CALL)
         run.timer = async_call_later(
             self.hass, duration, self._job(self._end_run, alarm_id, END_LAST_CALL_TIMEOUT)
@@ -1973,7 +2298,7 @@ class DaybreakManager:
 
     @callback
     def _async_run_actions(self, alarm_id: str, run: AlarmRun | None, phase: str) -> None:
-        actions = self.alarms[alarm_id]["actions"][phase]
+        actions = (run.alarm if run else self._alarm_of(alarm_id))["actions"][phase]
         if actions:
             self._async_run_script(alarm_id, run, actions, phase)
 
@@ -1985,7 +2310,7 @@ class DaybreakManager:
         actions: list[dict[str, Any]],
         phase: str,
     ) -> None:
-        alarm = self.alarms[alarm_id]
+        alarm = run.alarm if run else self._alarm_of(alarm_id)
         variables = {
             "alarm_id": alarm_id,
             "name": alarm["name"],
@@ -1993,21 +2318,28 @@ class DaybreakManager:
             "test": bool(run and run.test),
         }
         context = run.context if run else Context()
+        entry = run.journal if run else None
 
         async def _run() -> None:
             try:
                 config = await async_validate_actions_config(
                     self.hass, cv.SCRIPT_SCHEMA(deepcopy(actions))
                 )
-            except Exception:  # broken actions must not kill the alarm
+            except Exception as err:  # broken actions must not kill the alarm
                 _LOGGER.exception("DayBreak: invalid %s actions for %s", phase, alarm["name"])
+                self._step(entry, "actions_failed", level="error", phase=phase, detail=str(err))
                 return
             script = Script(
                 self.hass, config, f"DayBreak {alarm['name']} {phase}", DOMAIN, logger=_LOGGER
             )
             if run and phase != "stop":
                 run.scripts.append(script)
-            await script.async_run(variables, context=context)
+            self._step(entry, "actions", phase=phase, count=len(actions))
+            try:
+                await script.async_run(variables, context=context)
+            except Exception as err:
+                _LOGGER.warning("DayBreak: %s actions failed", phase, exc_info=True)
+                self._step(entry, "actions_failed", level="error", phase=phase, detail=str(err))
 
         # Run in the background: a long script must not block the alarm.
         self.hass.async_create_background_task(_run(), f"daybreak_{phase}_{alarm_id}")
@@ -2057,7 +2389,7 @@ class DaybreakManager:
         runtime = self._runtime.get(alarm_id)
         if not runtime or not runtime.run:
             return
-        if not self._anyone_home(self._presence_entities(self.alarms[alarm_id])):
+        if not self._anyone_home(self._presence_entities(runtime.run.alarm)):
             _LOGGER.debug("DayBreak: everybody left, stopping alarm %s", alarm_id)
             self._end_run(alarm_id, END_AWAY)
 
@@ -2075,15 +2407,25 @@ class DaybreakManager:
             run = self._runtime[target].run
             if not run or run.kind != "wake" or not run.ring_started or run.last_call_started:
                 continue
-            alarm = self.alarms[target]
+            alarm = run.alarm
             run.cancel_timer()
             run.stop_effect()
             run.snoozes += 1
             run.snooze_until = dt_util.utcnow() + timedelta(
                 minutes=minutes or self.snooze_minutes(alarm)
             )
-            if run.test:
+            if run.speed:
+                run.snooze_until = dt_util.utcnow() + timedelta(
+                    minutes=(minutes or self.snooze_minutes(alarm)) / run.speed
+                )
+            elif run.test:
                 run.snooze_until = min(run.snooze_until, dt_util.utcnow() + timedelta(seconds=30))
+            self._step(
+                run.journal,
+                "snooze",
+                minutes=minutes or self.snooze_minutes(alarm),
+                count=run.snoozes,
+            )
             await self._async_apply(run, SNOOZE_LEVEL, transition=2)
             run.timer = async_track_point_in_utc_time(
                 self.hass, self._job(self._async_ring, target), run.snooze_until
@@ -2132,15 +2474,57 @@ class DaybreakManager:
     async def async_set_enabled(self, alarm_id: str, enabled: bool) -> None:
         await self.async_update(alarm_id, {"enabled": enabled})
 
-    async def async_test(self, alarm_id: str, duration: int = 60) -> None:
-        """Run the whole alarm now with a compressed light ramp of ``duration`` s."""
-        self.get(alarm_id)
+    async def async_test(
+        self,
+        alarm_id: str,
+        duration: int = 60,
+        *,
+        config: dict[str, Any] | None = None,
+        speed: float | None = None,
+        parts: list[str] | None = None,
+        start: str = "light",
+    ) -> None:
+        """Run the alarm now as a test.
+
+        Without ``speed`` the light ramp takes ``duration`` seconds. With
+        ``speed`` everything runs in time lapse (light, music, snooze, last
+        call): 6 means one minute takes 10 seconds. ``config`` tests unsaved
+        settings, ``parts`` limits the test to "light" and/or "audio", and
+        ``start="ring"`` jumps straight to the alarm time.
+        """
+        stored = self.get(alarm_id)
+        alarm = validate_alarm({**config, "id": alarm_id}) if config else deepcopy(stored)
+        if parts is not None:
+            if "light" not in parts:
+                alarm["light"]["targets"] = {}
+            if "audio" not in parts:
+                alarm["audio"]["enabled"] = False
         runtime = self._runtime[alarm_id]
         if runtime.run:
             self._end_run(alarm_id, END_STOPPED)
         now = dt_util.utcnow()
-        alarm_time = now + timedelta(seconds=duration)
-        await self._async_start_run(alarm_id, alarm_time, alarm_time, now, test=True)
+        if not speed:
+            alarm_time = now + timedelta(seconds=duration)
+            await self._async_start_run(
+                alarm_id, alarm_time, alarm_time, now, test=True, alarm=alarm
+            )
+            return
+        light = alarm["light_lead"] if self._has_target(alarm["light"]["targets"]) else 0
+        audio = alarm["audio"]["lead"] if self._audio_on(alarm) else 0
+        if start == "ring":
+            alarm_time = now
+        else:
+            alarm_time = now + timedelta(seconds=max(light, audio) * 60 / speed)
+        light_start = alarm_time - timedelta(seconds=light * 60 / speed)
+        await self._async_start_run(
+            alarm_id,
+            alarm_time,
+            alarm_time,
+            light_start,
+            test=True,
+            alarm=alarm,
+            speed=speed,
+        )
 
     async def async_preview(
         self, settings: dict[str, Any], entity_ids: list[str], progress: float
@@ -2169,12 +2553,17 @@ class DaybreakManager:
         run.cancel_all()
         runtime.run = None
         alarm = self.alarms[alarm_id]
+        settings = run.alarm or alarm
+        if entry := run.journal:
+            self._step(entry, "end", reason=reason)
+            entry["ended"] = dt_util.utcnow().isoformat()
+            entry["result"] = "problem" if entry.get("problem") else reason
         if run.audio:
             self.hass.async_create_task(run.audio.async_stop(), eager_start=False)
         if not run.test:
             self._climate_finish(alarm_id)
         if run.ring_started or run.last_call_started:
-            self.hass.async_create_task(push.async_clear(self.hass, alarm), eager_start=False)
+            self.hass.async_create_task(push.async_clear(self.hass, settings), eager_start=False)
         for script in run.scripts:
             if script.is_running:
                 self.hass.async_create_task(script.async_stop())
@@ -2202,8 +2591,8 @@ class DaybreakManager:
             self._fire(EVENT_ALARM_STOPPED, alarm_id, data, run=run)
         self._fire(EVENT_ALARM_FINISHED, alarm_id, data, run=run)
         self._async_send_message(alarm_id, "finished")
-        if reason != END_DISABLED:
-            self._async_run_actions(alarm_id, None, "stop")
+        if reason != END_DISABLED and (actions := settings["actions"]["stop"]):
+            self._async_run_script(alarm_id, run, actions, "stop")
 
         if not run.test and is_one_time(alarm) and alarm["enabled"]:
             alarm["enabled"] = False
@@ -2236,7 +2625,7 @@ class DaybreakManager:
         **values: Any,
     ) -> None:
         """Phone notification with Snooze/Stop buttons."""
-        alarm = self.alarms[alarm_id]
+        alarm = run.alarm or self.alarms[alarm_id]
         if alarm["kind"] != "wake" or not push.targets(self.hass, alarm):
             return
         lang = "de" if (self.hass.config.language or "").startswith("de") else "en"
@@ -2247,6 +2636,7 @@ class DaybreakManager:
         message = _MESSAGES[key][lang].format(
             time=dt_util.as_local(run.alarm_time).strftime("%H:%M"), **values
         )
+        self._step(run.journal, "push", level="info", kind=key.removeprefix("push_"))
         self.hass.async_create_task(
             push.async_send(
                 self.hass,

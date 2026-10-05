@@ -57,6 +57,7 @@ import "./components/audio-source";
 import "./components/audio-line";
 import "./components/climate-settings";
 import "./components/calendar-rules";
+import "./components/test-run";
 
 const PHASES: Phase[] = ["light_start", "wake", "snooze", "stop"];
 const WEATHER: WeatherKey[] = ["snow", "storm", "rain"];
@@ -76,6 +77,8 @@ type Section = "time" | "cond" | "cal" | "light" | "audio" | "climate" | "push" 
 export class DaybreakAlarmEditor extends LitElement {
   @property({ attribute: false }) hass?: HomeAssistant;
   @property({ attribute: false }) alarm?: AlarmConfig;
+  /** Id of the saved alarm (undefined for a new one). */
+  @property({ attribute: false }) alarmId?: string;
   @property({ attribute: false }) settings?: Settings;
   @property({ attribute: false }) lightProfiles: LightProfile[] = [];
   @property({ attribute: false }) lastCallProfiles: LastCallProfile[] = [];
@@ -985,7 +988,7 @@ export class DaybreakAlarmEditor extends LitElement {
       const hass = this.hass!;
       this._calLoading = true;
       const { name, kind, wake, repeat, light_lead, calendar } = this.d;
-      calendarPreview(hass, { id: this.alarm?.id, name, kind, wake, repeat, light_lead, calendar })
+      calendarPreview(hass, { id: this.alarmId, name, kind, wake, repeat, light_lead, calendar })
         .then((res) => {
           if (this._calKey === key) this._calPreview = res.days;
         })
@@ -1006,7 +1009,7 @@ export class DaybreakAlarmEditor extends LitElement {
           : next.time ? formatTime(hass, next.time) : ""}${next.summary ? ` (${next.summary})` : ""}`
       : "";
     const summary = c.enabled ? [t(hass, "cal_summary", { n: active }), nextText].filter(Boolean).join(" · ") : t(hass, "off");
-    const others = this.alarms.filter((a) => a.id !== this.alarm?.id);
+    const others = this.alarms.filter((a) => a.id !== this.alarmId);
     return this._section("cal", t(hass, "section_calendar"), summary, () => html`
       <div class="row">
         <div class="grow"><div>${t(hass, "calr_on")}</div><div class="muted">${t(hass, "calr_on_d")}</div></div>
@@ -1285,7 +1288,9 @@ export class DaybreakAlarmEditor extends LitElement {
     const summary = lights.length
       ? `${t(hass, "n_lights", { n: lights.length })} · ${profile && !this._unlocked ? profile.name : t(hass, `curve_${this._effectiveSettings().curve}` as StringKey)}`
       : t(hass, "no_lights");
-    return this._section("light", t(hass, "section_light"), summary, () => this._lightBody());
+    return this._section("light", t(hass, "section_light"), summary, () => html`${this._lightBody()}
+      <div class="divider"></div>
+      ${this._testRun(["light", "audio"], "light")}`);
   }
 
   private _lightBody() {
@@ -1499,9 +1504,17 @@ export class DaybreakAlarmEditor extends LitElement {
                   <label class="row"><input type="checkbox" .checked=${au.restore_volume}
                     @change=${(e: Event) => set({ restore_volume: (e.target as HTMLInputElement).checked })} />${t(hass, "audio_restore")}</label>`
               : html`<div class="muted">${t(hass, "audio_button_hint")}</div>`}
+            <div class="divider"></div>
+            ${this._testRun(["audio"], "ring")}
           `
         : nothing}
     `);
+  }
+
+  /** Test area: run the current settings in time lapse. */
+  private _testRun(parts: ("light" | "audio")[], start: "light" | "ring") {
+    return html`<db-test-run .hass=${this.hass} .alarmId=${this.alarmId} .draft=${this.d}
+      .runtime=${this.runtime} .parts=${parts} .start=${start} .wakeTime=${this._wakeTime}></db-test-run>`;
   }
 
   /** Settings the climate runs with: its profile's, else its own. */
