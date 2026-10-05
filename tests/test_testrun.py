@@ -91,6 +91,7 @@ async def test_time_lapse_with_snooze(
     assert [x["step"] for x in entry["steps"]] == [
         "start",
         "music",
+        "music_playing",
         "ring",
         "snooze",
         "ring_again",

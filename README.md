@@ -81,7 +81,7 @@ DayBreak wakes you up gently: your lights fade in like a sunrise before the alar
 
 **Testing and troubleshooting**
 - **Test run in time lapse** right in the editor (light and audio sections): e.g. one minute takes 10 seconds, also for snooze, the last call and the music ramp; works with unsaved settings, shows a simulated clock and problems such as a speaker that could not play
-- **History** of the last 10 runs (also tests and skipped alarms) as a flow of steps: start, music, ringing, snooze, last call, end; problems are marked red
+- **History** of every alarm (rang, skipped, planned, test runs), coloured by outcome; pick one to see a time bar and a step-by-step flow from the weather/travel/calendar/climate checks to the end, with plain-language hints for problems
 
 **More**
 - Actions at light start, alarm, snooze and stop (any Home Assistant action)
@@ -183,7 +183,14 @@ Each rule reads like a sentence:
 - While it runs you see a simulated clock and can **Snooze** and **Stop** like in the morning; the buttons on the speaker and in the phone notification work too.
 - If something goes wrong (e.g. Music Assistant finds nothing to play), the problem is shown right there.
 
-**History:** the **History** tab shows the last 10 runs of all alarms, including test runs and alarms that were skipped because nobody was home. Every run is a row of steps with their times; problems are red. For the full error text look at **Settings → System → Logs**.
+**History:** the **History** tab lists every alarm, newest first: alarms that rang, days that were skipped (nobody home, calendar, public holiday, skipped by hand), planned alarms whose checks already ran, and test runs. Colours show the outcome at a glance: green = worked, yellow = worked with a note (e.g. rang earlier because of snow), red = problem, grey = skipped, blue = planned or running.
+
+Pick one to see its course:
+- a **headline in plain words** ("Everything worked", "There was 1 problem", "Skipped – nobody was at home"),
+- a **time bar** with preparation, sunrise, ringing, snoozing and last call, problems as red dots,
+- a **step-by-step flow** in four phases (preparation, sunrise, waking up, end): weather and travel checks, calendar, climate, presence, lamps, music, phone notifications, own actions, snoozes and how it ended. Every problem comes with a short **"What you can do"**.
+
+The history keeps the last 30 entries.
 
 If an alarm cannot start its music, DayBreak tries again and lets Music Assistant work out the media type itself; if that fails too, you get a notification (choose the events under **Safety & notifications**).
 

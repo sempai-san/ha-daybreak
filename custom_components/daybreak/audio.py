@@ -45,6 +45,7 @@ class AlarmAudio:
         *,
         speed: float = 1.0,
         on_problem: Callable[[str], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.hass = hass
         self.audio = audio
@@ -53,6 +54,7 @@ class AlarmAudio:
         self.variables = variables
         self._on_button = on_button
         self._on_problem = on_problem
+        self._on_event = on_event
         # Time lapse of a test run: the ramp runs this many times faster.
         self._speed = max(speed, 1.0)
         self._saved: dict[str, float] = {}
@@ -108,26 +110,37 @@ class AlarmAudio:
         if source["type"] == "music_assistant" and source["media_id"]:
             if self.hass.services.has_service("music_assistant", "play_media"):
                 data = {"media_id": source["media_id"], "enqueue": "replace"}
+                name = source.get("name") or source["media_id"]
                 if await self._call(
                     "music_assistant",
                     "play_media",
                     {**data, "media_type": source["media_type"]},
                     report=False,
                 ):
+                    self._event("music_playing", source=name)
                     return
                 # A wrong media type makes Music Assistant find nothing: let it
                 # work the type out from the uri or name itself.
-                await self._call("music_assistant", "play_media", data)
+                if await self._call("music_assistant", "play_media", data):
+                    self._event("music_retry", source=name)
                 return
             _LOGGER.warning("DayBreak: Music Assistant is not available")
             if self._on_problem:
                 self._on_problem("Music Assistant is not available")
-        if source["type"] == "url" and source["url"]:
-            await self._call(
+        if (
+            source["type"] == "url"
+            and source["url"]
+            and await self._call(
                 "media_player",
                 "play_media",
                 {"media_content_id": source["url"], "media_content_type": "music"},
             )
+        ):
+            self._event("music_playing", source=source["url"].rsplit("/", 1)[-1])
+
+    def _event(self, event: str, **info: Any) -> None:
+        if self._on_event:
+            self._on_event(event, info)
 
     def _has_music(self) -> bool:
         source = self._source

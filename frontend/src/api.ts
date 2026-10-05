@@ -459,6 +459,27 @@ export interface HistoryStep {
   minutes?: number;
   count?: number;
   profile?: string;
+  level?: "ok" | "info" | "warn" | "error";
+  reasons?: string[];
+  weather?: string | null;
+  temperature?: number | null;
+  warning?: number | null;
+  travel?: number | null;
+  action?: string;
+  rule?: number;
+  time?: string | null;
+  other?: string;
+  mode?: string;
+  target?: number;
+  lead?: number;
+  learned?: boolean;
+  devices?: number;
+  paused?: boolean;
+  room?: number | null;
+  outdoor?: number | null;
+  source?: string;
+  kind?: string;
+  phase?: string;
 }
 
 export interface HistoryEntry {
@@ -473,6 +494,8 @@ export interface HistoryEntry {
   ended: string | null;
   result: string;
   problem?: boolean;
+  warn?: boolean;
+  base?: string;
   steps: HistoryStep[];
 }
 

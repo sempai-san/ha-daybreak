@@ -487,7 +487,7 @@ export class DaybreakPanel extends LitElement {
       case "climate":
         return html`<db-climate-view .hass=${this.hass} .snapshot=${snapshot}></db-climate-view>`;
       case "history":
-        return html`<db-history-view .hass=${this.hass} .snapshot=${snapshot}></db-history-view>`;
+        return html`<db-history-view .hass=${this.hass} .snapshot=${snapshot} .narrow=${this.narrow}></db-history-view>`;
       case "settings":
         return html`<db-settings-view .hass=${this.hass} .snapshot=${snapshot}></db-settings-view>`;
       default:
