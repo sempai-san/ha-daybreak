@@ -136,6 +136,8 @@ class ClimateRun:
         self.base: datetime | None = None
         self.outdoor = outdoor
         self.context = Context()
+        # Called with (entity_id, service, data) for every command (history).
+        self.on_command: Any = None
         self.active: list[str] = []
         self.paused = False
         self.finished = False
@@ -273,6 +275,8 @@ class ClimateRun:
             await self._call(domain, "turn_off", entity_id)
 
     async def _call(self, domain: str, service: str, entity_id: str, **data: Any) -> None:
+        if self.on_command:
+            self.on_command([entity_id], f"{domain}.{service}", data)
         try:
             await self.hass.services.async_call(
                 domain,

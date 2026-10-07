@@ -1,6 +1,6 @@
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
-import type { HistoryEntry, HistoryStep, HomeAssistant, Snapshot } from "../api";
+import type { CheckSample, DeviceValues, HistoryDevice, HistoryEntry, HistoryStep, HomeAssistant, Snapshot } from "../api";
 import { t, type StringKey } from "../i18n";
 import { shared } from "../styles";
 import { define, formatDay, formatTime, localDate } from "../util";
@@ -19,6 +19,7 @@ const STEP_PHASE: Record<string, Phase> = {
   climate_start: "prep",
   climate_not_needed: "prep",
   presence: "prep",
+  initial: "prep",
   skipped: "prep",
   cancelled: "prep",
   start: "sunrise",
@@ -28,6 +29,7 @@ const STEP_PHASE: Record<string, Phase> = {
   button: "wake",
   last_call: "wake",
   end: "end",
+  restart: "end",
 };
 
 const ICONS: Record<string, string> = {
@@ -39,6 +41,7 @@ const ICONS: Record<string, string> = {
   climate_start: "🌡",
   climate_not_needed: "🌡",
   presence: "🏠",
+  initial: "📋",
   skipped: "⏭",
   cancelled: "✖",
   start: "🌅",
@@ -57,7 +60,16 @@ const ICONS: Record<string, string> = {
   button: "🔘",
   last_call: "📢",
   end: "🏁",
+  device: "🔌",
+  restart: "🔄",
 };
+
+/** Rough colour of a colour temperature, for the lamp lanes. */
+function kelvinColor(k: number): string {
+  const x = Math.max(0, Math.min(1, (k - 1800) / (6500 - 1800)));
+  const mix = (a: number, b: number) => Math.round(a + (b - a) * x);
+  return `rgb(${mix(255, 220)},${mix(150, 232)},${mix(60, 255)})`;
+}
 
 type Status = "ok" | "warn" | "problem" | "skipped" | "planned" | "running" | "cancelled";
 type Filter = "all" | "problem" | "skipped" | "test";
@@ -86,6 +98,8 @@ export class DbHistoryView extends LitElement {
   @state() private _sel?: string;
   @state() private _filter: Filter = "all";
   @state() private _alarm = "";
+  /** Opened device tables ("entry|entity"). */
+  @state() private _openDev: Record<string, boolean> = {};
 
   static styles = [
     shared,
@@ -373,6 +387,124 @@ export class DbHistoryView extends LitElement {
         display: block;
         margin-bottom: 2px;
       }
+      .lanes {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .lane {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .lh {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        border: none;
+        background: none;
+        color: inherit;
+        font: inherit;
+        padding: 0;
+        text-align: left;
+        cursor: pointer;
+      }
+      .lh span:first-child {
+        font-weight: 600;
+      }
+      .lh span:nth-child(2) {
+        flex: 1;
+        font-size: 12px;
+      }
+      .ltrack {
+        position: relative;
+        height: 16px;
+        border-radius: 8px;
+        background: var(--db-tile);
+        overflow: hidden;
+      }
+      .lseg {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+      }
+      .ldot {
+        position: absolute;
+        top: 4px;
+        width: 8px;
+        height: 8px;
+        margin-left: -4px;
+        border-radius: 50%;
+        background: #5a7fa8;
+      }
+      .ldot.warn {
+        background: var(--st-warn);
+      }
+      .lcmd,
+      .lout {
+        position: absolute;
+        top: 0;
+        width: 2px;
+        height: 16px;
+        margin-left: -1px;
+        background: #fff;
+        opacity: 0.85;
+      }
+      .lout {
+        background: #c77dff;
+        width: 3px;
+        opacity: 1;
+      }
+      .slow {
+        color: var(--st-warn);
+      }
+      .bad {
+        color: var(--st-problem);
+        font-weight: 600;
+      }
+      .dtab {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .dtab th,
+      .dtab td {
+        text-align: left;
+        padding: 4px 6px;
+        border-bottom: 1px solid var(--db-line);
+        vertical-align: top;
+      }
+      .dtab th {
+        color: var(--db-muted);
+        font-weight: 500;
+      }
+      .dtab tr.cmd td {
+        color: var(--db-muted);
+      }
+      .dtab tr.out td {
+        color: #d4b3ff;
+      }
+      .dtab-wrap {
+        overflow-x: auto;
+      }
+      .facts {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 2px 12px;
+        margin: 6px 0 0;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: var(--db-tile);
+        font-size: 12px;
+      }
+      .facts dt {
+        color: var(--db-muted);
+      }
+      .facts dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
       @media (max-width: 800px) {
         .wrap {
           grid-template-columns: minmax(0, 1fr);
@@ -442,6 +574,7 @@ export class DbHistoryView extends LitElement {
     else if (entry.result === "planned") parts.push(t(hass, "hx_s_planned"));
     else if (entry.result === "running") parts.push(t(hass, "hx_s_running"));
     else if (entry.result === "cancelled") parts.push(t(hass, "hx_s_cancelled"));
+    else if (entry.result === "interrupted") parts.push(t(hass, "hx_restart_t"));
     if (snoozes) parts.push(t(hass, "hx_s_snoozed", { n: snoozes }));
     if (end) parts.push(t(hass, `hx_end_${end.reason ?? "stopped"}_s` as StringKey));
     if (problems) parts.push(t(hass, "hx_s_problems", { n: problems }));
@@ -515,6 +648,8 @@ export class DbHistoryView extends LitElement {
           title: v("hx_climate_not_needed_t"),
           text: step.room != null ? v("hx_climate_not_needed_d", { room: step.room }) : v("hx_climate_not_needed_x"),
         };
+      case "initial":
+        return { title: v("hx_initial_t"), text: v("hx_initial_d", { n: step.snapshot?.length ?? 0 }) };
       case "presence":
         return { title: v("hx_presence_t"), text: v("hx_presence_d", { who: step.detail || "?" }) };
       case "skipped":
@@ -553,6 +688,17 @@ export class DbHistoryView extends LitElement {
         return { title: v("hx_actions_failed_t"), text: step.detail ?? "", help: v("hx_actions_h") };
       case "checks_failed":
         return { title: v("hx_checks_failed_t"), text: step.detail ?? "", help: v("hx_checks_h") };
+      case "device": {
+        const word = (x?: string | null) => {
+          const key = `hx_st_${x ?? "unknown"}`;
+          const w = v(key);
+          return w === key ? x ?? "?" : w;
+        };
+        return {
+          title: `${step.domain === "media_player" ? "🔊" : "💡"} ${step.name ?? ""}: ${word(step.old)} → ${word(step.new)}`,
+          text: v(step.by === "daybreak" ? "hx_by_daybreak" : "hx_by_outside"),
+        };
+      }
       case "snooze":
         return { title: v("hx_snooze_t"), text: v("hx_snooze_d", { min: step.minutes ?? 0, n: step.count ?? 1 }) };
       case "last_call":
@@ -587,21 +733,263 @@ export class DbHistoryView extends LitElement {
     const title =
       s === "problem"
         ? t(hass, "hx_h_problem", { n: problems })
-        : s === "skipped" && skip
-          ? t(hass, "hx_h_skipped")
+        : entry.result === "interrupted"
+          ? t(hass, "hx_restart_t")
+          : s === "skipped" && skip
+            ? t(hass, "hx_h_skipped")
           : t(hass, `hx_h_${s}` as StringKey);
     return { title, text: skip ? this._skipText(skip) : parts.join(" · ") };
   }
 
   // ------------------------------------------------------------- graphic
 
+  /** Common time axis of the steps and all device samples. */
+  private _range(entry: HistoryEntry): [number, number] {
+    const times = [
+      ...entry.steps.map((s) => Date.parse(s.t)),
+      ...Object.values(entry.devices ?? {}).flatMap((d) => d.log.map((x) => Date.parse(x.t))),
+      ...(entry.checks_log ?? []).map((c) => Date.parse(c.t)),
+    ];
+    const from = Math.min(...times);
+    return [from, Math.max(...times, from + 1000)];
+  }
+
+  /** Colour of a device state on its lane. */
+  private _laneColor(dev: HistoryDevice, a: DeviceValues): string {
+    if (a.s === "unavailable" || a.s === "missing") return "repeating-linear-gradient(45deg,var(--st-problem) 0 4px,transparent 4px 8px)";
+    if (dev.domain === "light") {
+      if (a.s !== "on") return "#3a3a3a";
+      const base = a.c ?? (a.k ? kelvinColor(a.k) : "#ffd08a");
+      return `color-mix(in srgb, ${base} ${Math.max(15, a.b ?? 100)}%, #222)`;
+    }
+    if (dev.domain === "media_player") return a.s === "playing" ? "#3cc864" : a.s === "buffering" ? "#9bd99f" : "#3a3a3a";
+    if (dev.domain === "climate") return a.s === "heat" ? "#ff8a4c" : a.s === "cool" ? "#5aa7e6" : a.s === "off" ? "#3a3a3a" : "#c9a3ff";
+    return a.s === "on" ? "#ffb547" : "#3a3a3a";
+  }
+
+  /** Parallel lanes: one per lamp, speaker or climate device, on the same time axis. */
+  private _lanes(entry: HistoryEntry) {
+    const hass = this.hass;
+    const devices = Object.entries(entry.devices ?? {});
+    const checks = entry.checks_log ?? [];
+    if (!devices.length && !checks.length) return nothing;
+    const [from, to] = this._range(entry);
+    const pos = (ms: number) => ((ms - from) / (to - from)) * 100;
+    const end = entry.result === "running" ? Math.min(Date.now(), to) : to;
+    return html`<div class="lanes">
+      <div class="lbl">${t(hass, "hx_devices")}</div>
+      <div class="muted">${t(hass, "hx_devices_hint")}</div>
+      ${checks.length ? this._checksLane(entry, checks, pos) : nothing}
+      ${devices.map(([id, dev]) => {
+        const states = dev.log.filter((x) => !x.cmd);
+        const cmds = dev.log.filter((x) => x.cmd);
+        const slow = states.filter((x) => (x.lat ?? 0) >= 5).length;
+        const open = this._openDev[`${entry.id}|${id}`];
+        return html`<div class="lane">
+          <button class="lh" aria-expanded=${!!open} @click=${() => (this._openDev = { ...this._openDev, [`${entry.id}|${id}`]: !open })}>
+            <span>${dev.domain === "media_player" ? "🔊" : dev.domain === "light" ? "💡" : "🌡"} ${dev.name}</span>
+            <span class="muted">${t(hass, "hx_dev_sum", { s: states.length, c: cmds.length })}${slow ? html` · <b class="slow">${t(hass, "hx_dev_slow", { n: slow })}</b>` : nothing}</span>
+            <span class="muted">${open ? "▴" : "▾"}</span>
+          </button>
+          <div class="ltrack">
+            ${states.map((x, i) => {
+              const a = Date.parse(x.t);
+              const b = i + 1 < states.length ? Date.parse(states[i + 1].t) : end;
+              return html`<span class="lseg" title=${`${this._time(entry, x.t, true)} ${this._values(dev, x.a)}`}
+                style="left:${pos(a)}%;width:${Math.max(0.6, pos(b) - pos(a))}%;background:${this._laneColor(dev, x.a)}"></span>`;
+            })}
+            ${cmds.map((x) => html`<span class="lcmd" style="left:${pos(Date.parse(x.t))}%" title=${`${this._time(entry, x.t, true)} ${x.cmd}`}></span>`)}
+            ${states.filter((x) => x.by === "outside").map((x) => html`<span class="lout" style="left:${pos(Date.parse(x.t))}%" title=${t(hass, "hx_by_outside")}></span>`)}
+          </div>
+          ${open ? this._devTable(entry, dev) : nothing}
+        </div>`;
+      })}
+      <div class="legend">
+        <span style="--c:#fff">${t(hass, "hx_lg_cmd")}</span>
+        <span style="--c:#c77dff">${t(hass, "hx_lg_outside")}</span>
+        <span style="--c:var(--st-problem)">${t(hass, "hx_lg_unavail")}</span>
+      </div>
+    </div>`;
+  }
+
+  /** One dot per weather/travel check before the start; yellow = alarm moved earlier. */
+  private _checksLane(entry: HistoryEntry, checks: CheckSample[], pos: (ms: number) => number) {
+    const hass = this.hass;
+    const key = `${entry.id}|checks`;
+    const open = this._openDev[key];
+    const first = checks[0];
+    const last = checks[checks.length - 1];
+    const vals = (c: CheckSample) =>
+      [
+        c.weather ? this._weather(c.weather) : "",
+        c.temperature != null ? `${c.temperature} °C` : "",
+        c.warning ? t(hass, "hx_checks_warning", { n: c.warning }) : "",
+        c.travel != null ? t(hass, "hx_checks_travel", { min: c.travel }) : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    return html`<div class="lane">
+      <button class="lh" aria-expanded=${!!open} @click=${() => (this._openDev = { ...this._openDev, [key]: !open })}>
+        <span>🌦 ${t(hass, "hx_checks_lane")}</span>
+        <span class="muted">${t(hass, "hx_checks_sum", {
+          n: checks.length,
+          from: this._time(entry, first.t),
+          to: this._time(entry, last.t),
+        })}</span>
+        <span class="muted">${open ? "▴" : "▾"}</span>
+      </button>
+      <div class="ltrack">
+        ${checks.map(
+          (c) => html`<span class="ldot ${c.minutes ? "warn" : ""}" style="left:${pos(Date.parse(c.t))}%"
+            title=${`${this._time(entry, c.t)} ${vals(c)} → ${c.minutes ? `−${c.minutes} min` : "±0"}`}></span>`,
+        )}
+      </div>
+      ${open
+        ? html`<div class="dtab-wrap"><table class="dtab">
+            <thead><tr><th>${t(hass, "hx_col_time")}</th><th>${t(hass, "hx_col_values")}</th><th>${t(hass, "hx_col_result")}</th></tr></thead>
+            <tbody>${checks.map(
+              (c) => html`<tr><td>${this._time(entry, c.t)}</td><td>${vals(c) || "–"}</td>
+                <td class=${c.minutes ? "slow" : ""}>${c.minutes ? t(hass, "hx_checks_earlier", { min: c.minutes, why: "" }).replace(" ()", "") : t(hass, "hx_checks_same")}</td></tr>`,
+            )}</tbody></table></div>`
+        : nothing}
+    </div>`;
+  }
+
+  private _weather(w: string): string {
+    const key = `hx_wx_${w}`;
+    const text = t(this.hass, key as StringKey);
+    return text === key ? w : text;
+  }
+
+  /** Readable values: "on · 45 % · 2700 K" */
+  private _values(dev: HistoryDevice, a: DeviceValues | undefined): string {
+    if (!a) return "";
+    const hass = this.hass;
+    const parts: string[] = [];
+    if (a.s) {
+      const key = `hx_st_${a.s}`;
+      const w = t(hass, key as StringKey);
+      parts.push(w === key ? a.s : w);
+    }
+    if (a.b != null) parts.push(`${a.b} %`);
+    if (a.k != null) parts.push(`${a.k} K`);
+    if (a.c) parts.push(a.c);
+    if (a.v != null) parts.push(t(hass, "hx_v_volume", { v: a.v }));
+    if (a.m) parts.push(`„${a.m}“`);
+    if (a.tt != null) parts.push(t(hass, "hx_v_target", { v: a.tt }));
+    if (a.ct != null) parts.push(t(hass, "hx_v_current", { v: a.ct }));
+    if (a.a) parts.push(a.a);
+    if (a.p != null) parts.push(`${a.p} %`);
+    if (a.h != null) parts.push(`${a.h} % rH`);
+    if (a.tr != null) parts.push(t(hass, "hx_v_transition", { v: a.tr }));
+    return parts.join(" · ") || "–";
+  }
+
+  /** Changes only: "45 % → 60 %, 2700 K → 3000 K" */
+  private _diff(dev: HistoryDevice, before: DeviceValues | undefined, after: DeviceValues): string {
+    if (!before) return this._values(dev, after);
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]) as Set<keyof DeviceValues>;
+    const out: string[] = [];
+    for (const k of keys) {
+      if (before[k] === after[k]) continue;
+      out.push(`${this._values(dev, { [k]: before[k] } as DeviceValues) || "–"} → ${this._values(dev, { [k]: after[k] } as DeviceValues) || "–"}`);
+    }
+    return out.join(", ") || this._values(dev, after);
+  }
+
+  private _devTable(entry: HistoryEntry, dev: HistoryDevice) {
+    const hass = this.hass;
+    let prev: DeviceValues | undefined;
+    let lastCmd: number | null = null;
+    const rows = dev.log.map((x, i) => {
+      if (x.cmd) {
+        // "No reaction" only when the device changed later but never because of
+        // DayBreak within 30 s (a command that changes nothing has no answer).
+        const at = Date.parse(x.t);
+        const later = dev.log.slice(i + 1).filter((y) => !y.cmd);
+        const answered =
+          !later.length ||
+          later.some((y) => y.by === "daybreak" && Date.parse(y.t) - at <= 30000) ||
+          !later.some((y) => Date.parse(y.t) - at > 30000) ||
+          JSON.stringify(x.a) === "{}";
+        lastCmd = Date.parse(x.t);
+        return html`<tr class="cmd"><td>${this._time(entry, x.t, true)}</td><td>➜ ${t(hass, "hx_cmd")}</td>
+          <td>${x.cmd} · ${this._values(dev, x.a)}</td><td>${answered ? "" : html`<span class="slow">${t(hass, "hx_no_answer")}</span>`}</td></tr>`;
+      }
+      const row = html`<tr class=${x.by === "outside" ? "out" : ""}><td>${this._time(entry, x.t, true)}</td>
+        <td>${x.by === "before" ? t(hass, "hx_before") : x.by === "daybreak" ? t(hass, "hx_by_db_short") : t(hass, "hx_by_out_short")}</td>
+        <td>${x.by === "before" ? this._values(dev, x.a) : this._diff(dev, prev, x.a)}</td>
+        <td>${x.lat != null
+          ? html`<span class=${x.lat >= 15 ? "bad" : x.lat >= 5 ? "slow" : ""}>${t(hass, "hx_lat", { s: x.lat.toLocaleString() })}</span>`
+          : nothing}</td></tr>`;
+      prev = x.a;
+      return row;
+    });
+    void lastCmd;
+    return html`<div class="dtab-wrap"><table class="dtab">
+      <thead><tr><th>${t(hass, "hx_col_time")}</th><th>${t(hass, "hx_col_what")}</th><th>${t(hass, "hx_col_change")}</th><th>${t(hass, "hx_col_reaction")}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  }
+
+  /** Details of a step as label/value pairs (entities, values, what was recognised). */
+  private _facts(entry: HistoryEntry, step: HistoryStep): [string, string][] {
+    const hass = this.hass;
+    const f: [string, string][] = [];
+    const add = (key: string, value: unknown) => {
+      if (value === null || value === undefined || value === "" || (Array.isArray(value) && !value.length)) return;
+      f.push([t(hass, `hx_f_${key}` as StringKey), String(value)]);
+    };
+    switch (step.step) {
+      case "calendar":
+        add("calendar", step.calendar);
+        add("event", step.detail);
+        add("event_start", step.all_day ? t(hass, "hx_all_day") : step.event_start ? formatTime(hass, step.event_start) : null);
+        add("location", step.location);
+        add("keywords", step.keywords?.map((w) => `„${w}“`).join(step.match === "all" ? " + " : " / "));
+        add("found", step.found?.map((w) => `„${w}“`).join(", "));
+        add("before_min", step.before != null ? `${step.before} min` : null);
+        add("travel", step.travel != null ? `${step.travel} min` : null);
+        add("result_time", step.time ? formatTime(hass, step.time) : null);
+        break;
+      case "checks":
+        add("weather_entity", step.weather_entity);
+        add("travel_entity", step.travel_entity);
+        add("usual", step.usual != null ? `${step.usual} min` : null);
+        add("parts", step.parts?.map((p) => `${t(hass, `hx_reason_${p.reason}` as StringKey)} −${p.minutes} min`).join(", "));
+        add("combine", step.combine ? t(hass, `hx_combine_${step.combine}` as StringKey) : null);
+        add("limit", step.limit != null ? `${step.limit} min` : null);
+        break;
+      case "presence":
+      case "skipped":
+      case "climate_wait":
+        add("entities", step.states?.map((x) => `${x.name}: ${this._values({ domain: "", name: "", log: [] }, { s: x.state })}`).join(", "));
+        add("outdoor", step.outdoor != null ? `${step.outdoor} °C` : null);
+        add("limit_below", step.limit_below != null ? `${step.limit_below} °C` : null);
+        add("limit_above", step.limit_above != null ? `${step.limit_above} °C` : null);
+        break;
+      case "initial":
+        for (const d of step.snapshot ?? []) {
+          f.push([d.name, this._values({ domain: d.domain, name: d.name, log: [] }, d.a)]);
+        }
+        break;
+      case "climate_start":
+      case "climate_not_needed":
+        add("room", step.room != null ? `${step.room} °C` : null);
+        add("target", step.target != null ? `${step.target} °C` : null);
+        add("outdoor", step.outdoor != null ? `${step.outdoor} °C` : null);
+        add("samples", step.samples || null);
+        add("skipped_devices", step.skipped?.join(", "));
+        break;
+    }
+    return f;
+  }
+
   /** Time bar: preparation, sunrise, ringing, snoozes and last call, problems as dots. */
   private _timeBar(entry: HistoryEntry) {
     const steps = entry.steps;
     if (steps.length < 2) return nothing;
-    const times = steps.map((s) => Date.parse(s.t));
-    const from = Math.min(...times);
-    const to = Math.max(...times, from + 1000);
+    const [from, to] = this._range(entry);
     const pos = (ms: number) => ((ms - from) / (to - from)) * 100;
     const segs: { cls: string; a: number; b: number }[] = [];
     let cur: { cls: string; at: number } | null = null;
@@ -677,6 +1065,12 @@ export class DbHistoryView extends LitElement {
               <div class="when">${this._time(entry, step.t)}</div>
               <div class="title">${d.title}</div>
               ${d.text ? html`<div class="text">${d.text}</div>` : nothing}
+              ${(() => {
+                const facts = this._facts(entry, step);
+                return facts.length
+                  ? html`<dl class="facts">${facts.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>`
+                  : nothing;
+              })()}
               ${help}
             </div>
           </div>`;
@@ -727,6 +1121,7 @@ export class DbHistoryView extends LitElement {
         </div>
       </div>
       ${this._timeBar(entry)}
+      ${this._lanes(entry)}
       <div>${this._flow(entry)}</div>
     </section>`;
   }
