@@ -28,6 +28,7 @@ const STEP_PHASE: Record<string, Phase> = {
   button: "wake",
   last_call: "wake",
   end: "end",
+  restart: "end",
 };
 
 const ICONS: Record<string, string> = {
@@ -57,6 +58,8 @@ const ICONS: Record<string, string> = {
   button: "🔘",
   last_call: "📢",
   end: "🏁",
+  device: "🔌",
+  restart: "🔄",
 };
 
 type Status = "ok" | "warn" | "problem" | "skipped" | "planned" | "running" | "cancelled";
@@ -442,6 +445,7 @@ export class DbHistoryView extends LitElement {
     else if (entry.result === "planned") parts.push(t(hass, "hx_s_planned"));
     else if (entry.result === "running") parts.push(t(hass, "hx_s_running"));
     else if (entry.result === "cancelled") parts.push(t(hass, "hx_s_cancelled"));
+    else if (entry.result === "interrupted") parts.push(t(hass, "hx_restart_t"));
     if (snoozes) parts.push(t(hass, "hx_s_snoozed", { n: snoozes }));
     if (end) parts.push(t(hass, `hx_end_${end.reason ?? "stopped"}_s` as StringKey));
     if (problems) parts.push(t(hass, "hx_s_problems", { n: problems }));
@@ -553,6 +557,17 @@ export class DbHistoryView extends LitElement {
         return { title: v("hx_actions_failed_t"), text: step.detail ?? "", help: v("hx_actions_h") };
       case "checks_failed":
         return { title: v("hx_checks_failed_t"), text: step.detail ?? "", help: v("hx_checks_h") };
+      case "device": {
+        const word = (x?: string | null) => {
+          const key = `hx_st_${x ?? "unknown"}`;
+          const w = v(key);
+          return w === key ? x ?? "?" : w;
+        };
+        return {
+          title: `${step.domain === "media_player" ? "🔊" : "💡"} ${step.name ?? ""}: ${word(step.old)} → ${word(step.new)}`,
+          text: v(step.by === "daybreak" ? "hx_by_daybreak" : "hx_by_outside"),
+        };
+      }
       case "snooze":
         return { title: v("hx_snooze_t"), text: v("hx_snooze_d", { min: step.minutes ?? 0, n: step.count ?? 1 }) };
       case "last_call":
@@ -587,8 +602,10 @@ export class DbHistoryView extends LitElement {
     const title =
       s === "problem"
         ? t(hass, "hx_h_problem", { n: problems })
-        : s === "skipped" && skip
-          ? t(hass, "hx_h_skipped")
+        : entry.result === "interrupted"
+          ? t(hass, "hx_restart_t")
+          : s === "skipped" && skip
+            ? t(hass, "hx_h_skipped")
           : t(hass, `hx_h_${s}` as StringKey);
     return { title, text: skip ? this._skipText(skip) : parts.join(" · ") };
   }

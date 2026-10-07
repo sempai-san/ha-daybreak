@@ -480,6 +480,11 @@ export interface HistoryStep {
   source?: string;
   kind?: string;
   phase?: string;
+  name?: string;
+  domain?: string;
+  old?: string | null;
+  new?: string;
+  by?: "daybreak" | "outside";
 }
 
 export interface HistoryEntry {

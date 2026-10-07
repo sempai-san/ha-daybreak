@@ -188,7 +188,7 @@ Each rule reads like a sentence:
 Pick one to see its course:
 - a **headline in plain words** ("Everything worked", "There was 1 problem", "Skipped – nobody was at home"),
 - a **time bar** with preparation, sunrise, ringing, snoozing and last call, problems as red dots,
-- a **step-by-step flow** in four phases (preparation, sunrise, waking up, end): weather and travel checks, calendar, climate, presence, lamps, music, phone notifications, own actions, snoozes and how it ended. Every problem comes with a short **"What you can do"**.
+- a **step-by-step flow** in four phases (preparation, sunrise, waking up, end): weather and travel checks, calendar, climate, presence, lamps, music, phone notifications, own actions, snoozes and how it ended. It also lists **what the lamps and speakers did** (on/off, playing/paused/stopped) and whether DayBreak or something else (a tap on the speaker, an app, another automation) caused it. Every problem comes with a short **"What you can do"**.
 
 The history keeps the last 30 entries.
 

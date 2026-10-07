@@ -191,3 +191,44 @@ def test_volume_curve_points() -> None:
     assert player.volume_at(1) == pytest.approx(50)
     player.audio = {**audio, "curve": []}
     assert player.volume_at(0.5) == pytest.approx(30)
+
+
+async def test_speaker_idle_tap_snoozes(
+    hass: HomeAssistant, manager, speaker, freezer: FrozenDateTimeFactory
+) -> None:
+    """A HomePod via Music Assistant reports "idle" when tapped, not "paused"."""
+    _morning(freezer, 6, 29)
+    alarm = await manager.async_create(_alarm())
+    await advance(hass, freezer, timedelta(minutes=1, seconds=20))
+    assert manager.state(alarm["id"]) == "ringing"
+    await advance(hass, freezer, timedelta(seconds=10))
+    hass.states.async_set(SPEAKER, "playing", {"volume_level": 0.4})
+    await hass.async_block_till_done()
+    plays = len(speaker["play"])
+    hass.states.async_set(SPEAKER, "idle", {"volume_level": 0.4}, context=Context())
+    await hass.async_block_till_done()
+    assert manager.state(alarm["id"]) == "snoozed"
+    # Not started again as if a short sound had ended.
+    assert len(speaker["play"]) == plays
+    steps = manager.history[0]["steps"]
+    device = [s for s in steps if s["step"] == "device"]
+    assert device[-1]["new"] == "idle" and device[-1]["by"] == "outside"
+    assert any(s["step"] == "button" for s in steps)
+
+
+async def test_tap_during_volume_ramp(
+    hass: HomeAssistant, manager, speaker, freezer: FrozenDateTimeFactory
+) -> None:
+    """Volume steps of the ramp must not hide a tap on the speaker."""
+    _morning(freezer, 6, 29)
+    alarm = await manager.async_create(_alarm(ramp=10))
+    await advance(hass, freezer, timedelta(minutes=1, seconds=20))
+    assert manager.state(alarm["id"]) == "ringing"
+    await advance(hass, freezer, timedelta(seconds=10))
+    hass.states.async_set(SPEAKER, "playing", {"volume_level": 0.4})
+    await advance(hass, freezer, timedelta(seconds=9), step=1)
+    # Right after a volume step of the ramp.
+    await manager._runtime[alarm["id"]].run.audio._set_volume(30)
+    hass.states.async_set(SPEAKER, "paused", {"volume_level": 0.3}, context=Context())
+    await hass.async_block_till_done()
+    assert manager.state(alarm["id"]) == "snoozed"

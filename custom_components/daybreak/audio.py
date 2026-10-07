@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime, timedelta
 import logging
 from typing import Any
@@ -80,10 +81,17 @@ class AlarmAudio:
         data: dict[str, Any],
         *,
         report: bool = True,
+        quiet: bool = True,
         **target: Any,
     ) -> bool:
-        """Call a speaker service; False (and a reported problem) if it failed."""
-        self._quiet_until = dt_util.utcnow() + QUIET
+        """Call a speaker service; False (and a reported problem) if it failed.
+
+        ``quiet``: state changes right after this call are ours (play/pause),
+        not a button press. Volume changes do not change the playing state,
+        so they must not hide a tap on the speaker.
+        """
+        if quiet:
+            self._quiet_until = dt_util.utcnow() + QUIET
         try:
             await self.hass.services.async_call(
                 domain,
@@ -104,7 +112,9 @@ class AlarmAudio:
 
     async def _set_volume(self, percent: float) -> None:
         self._volume = percent
-        await self._call("media_player", "volume_set", {"volume_level": round(percent / 100, 3)})
+        await self._call(
+            "media_player", "volume_set", {"volume_level": round(percent / 100, 3)}, quiet=False
+        )
 
     async def _play_source(self, source: dict[str, Any]) -> None:
         if source["type"] == "music_assistant" and source["media_id"]:
@@ -269,6 +279,21 @@ class AlarmAudio:
         points = [(0.0, lo / 100), *((x, y / 100) for x, y in self.audio["curve"]), (1.0, hi / 100)]
         return curve_value(points, done) * 100
 
+    @staticmethod
+    def _interrupted(old: Any) -> bool:
+        """Did playback stop before the end (a tap) rather than run out?"""
+        duration = old.attributes.get("media_duration")
+        position = old.attributes.get("media_position")
+        if not duration:
+            return True  # a stream or playlist does not just end
+        if position is None:
+            return False
+        updated = old.attributes.get("media_position_updated_at")
+        if updated is not None:
+            with suppress(TypeError):
+                position += (dt_util.utcnow() - updated).total_seconds()
+        return position < float(duration) - 5
+
     @callback
     def _on_state(self, event: Event[EventStateChangedData]) -> None:
         old, new = event.data["old_state"], event.data["new_state"]
@@ -276,8 +301,11 @@ class AlarmAudio:
             return
         if dt_util.utcnow() < self._quiet_until or new.context.id == self.context.id:
             return
-        if new.state == "paused" and self.audio["button"] and not self.paused:
-            _LOGGER.debug("DayBreak: pause on %s counts as button press", new.entity_id)
+        stopped = new.state == "paused" or (new.state == "idle" and self._interrupted(old))
+        if stopped and self.audio["button"] and not self.paused:
+            # Some speakers (e.g. a HomePod via Music Assistant) report "idle"
+            # instead of "paused" when tapped.
+            _LOGGER.debug("DayBreak: %s on %s counts as button press", new.state, new.entity_id)
             self._on_button()
         elif new.state == "idle" and self.should_play and not self.paused:
             # A single sound ended by itself: play it again.

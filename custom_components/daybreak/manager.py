@@ -146,7 +146,7 @@ TRAVEL_LIVE_AGE = timedelta(minutes=10)
 TRAVEL_LIVE = timedelta(hours=3)
 # The history keeps this many runs, each with at most this many steps.
 HISTORY_MAX = 30
-HISTORY_STEPS = 40
+HISTORY_STEPS = 80
 # Ringing effects.
 EFFECT_INTERVAL = timedelta(seconds=2)
 PULSE_LOW = 0.35
@@ -409,6 +409,19 @@ class DaybreakManager:
         self._handled = dict(data.get("handled", {}))
         self._climate_learn = dict(data.get("climate_learn", {}))
         self._history = [h for h in data.get("history", []) if isinstance(h, dict)][:HISTORY_MAX]
+        for entry in self._history:
+            if entry.get("result") == "running":
+                # Home Assistant stopped while this alarm was running.
+                entry["result"] = "interrupted"
+                entry["warn"] = True
+                entry["steps"].append(
+                    {
+                        "t": dt_util.utcnow().isoformat(),
+                        "step": "restart",
+                        "ok": True,
+                        "level": "warn",
+                    }
+                )
         # Create every runtime first: listeners of the dispatches below read all alarms.
         self._runtime = {alarm_id: AlarmRuntime() for alarm_id in self.alarms}
         for alarm_id in self.alarms:
@@ -1825,6 +1838,15 @@ class DaybreakManager:
             self._async_send_message(alarm_id, "device_unavailable", lights=", ".join(missing))
             self._step(run.journal, "lights_missing", level="error", detail=", ".join(missing))
         lights = run.lights
+        watched = [*lights]
+        if self._audio_on(alarm):
+            watched += alarm["audio"]["players"]
+        if watched:
+            run.unsubs.append(
+                async_track_state_change_event(
+                    self.hass, watched, partial(self._on_device_state, run)
+                )
+            )
         if lights and alarm["stop_on_light_off"]:
             run.unsubs.append(
                 async_track_state_change_event(
@@ -1878,6 +1900,24 @@ class DaybreakManager:
             )
             return
         await self._async_step(alarm_id)
+
+    @callback
+    def _on_device_state(self, run: AlarmRun, event: Event[EventStateChangedData]) -> None:
+        """Lamps and speakers: log every on/off/playing/paused change and who did it."""
+        old, new = event.data["old_state"], event.data["new_state"]
+        if not new or (old and old.state == new.state):
+            return
+        ours = new.context.id == run.context.id or new.context.parent_id == run.context.id
+        self._step(
+            run.journal,
+            "device",
+            level="warn" if new.state in ("unavailable", "unknown") else "info",
+            name=self._friendly(new.entity_id),
+            domain=new.entity_id.split(".", 1)[0],
+            old=old.state if old else None,
+            new=new.state,
+            by="daybreak" if ours else "outside",
+        )
 
     @callback
     def _audio_event(self, run: AlarmRun, event: str, info: dict[str, Any]) -> None:
