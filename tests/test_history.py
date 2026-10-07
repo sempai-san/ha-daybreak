@@ -67,14 +67,12 @@ async def test_real_alarm_with_checks(
     assert steps == ["checks", "presence", "initial", "start", "ring", "end"]
     initial = entry["steps"][2]["snapshot"]
     assert {"name": "Jan", "domain": "person", "a": {"s": "home"}} in initial
-    assert entry["checks_log"][0]["travel"] == 45
-    assert entry["steps"][1]["detail"] == "Jan"
-    assert entry["steps"][1]["states"] == [{"name": "Jan", "state": "home"}]
-    assert entry["steps"][0]["travel_entity"] == "travel"
-    # The lamp: how it was before, the commands and the states.
-    log = entry["devices"][LIGHT]["log"]
-    assert log[0]["by"] == "before" and log[0]["a"] == {"s": "off"}
-    assert any(x.get("cmd") == "turn_on" for x in log)
+    # Entities for the recorder, DayBreak's commands with timing, the checks' durations.
+    assert entry["entities"][LIGHT] == {"n": "bedroom", "r": "light"}
+    assert entry["entities"]["sensor.travel"]["r"] == "travel"
+    cmd = next(c for c in entry["cmds"] if c["e"] == LIGHT)
+    assert cmd["s"] == "light.turn_on" and cmd["ack"] is not None
+    assert entry["calls"][0]["k"] == "checks" and entry["calls"][0]["minutes"] == 15
     # Same occurrence: no second entry.
     assert len([e for e in manager.history if e["alarm_id"] == alarm["id"]]) == 1
 
@@ -122,7 +120,10 @@ async def test_lamp_states_and_reaction_time(
         context=run.context,
     )
     await hass.async_block_till_done()
-    log = manager.history[0]["devices"][LIGHT]["log"]
-    state = log[-1]
-    assert state["a"] == {"s": "on", "b": 50}
-    assert state["by"] == "daybreak" and state["lat"] == pytest.approx(0.4, abs=0.2)
+    cmd = [c for c in manager.history[0]["cmds"] if c["e"] == LIGHT][-1]
+    assert cmd["seen"] == pytest.approx(0.4, abs=0.2)
+    assert cmd["got"] == {"s": "on", "b": 50}
+    # A change from outside (e.g. the lamp's own app) is kept for the lane.
+    hass.states.async_set(LIGHT, "on", {"supported_color_modes": ["brightness"], "brightness": 255})
+    await hass.async_block_till_done()
+    assert manager.history[0]["ext"][-1]["a"] == {"s": "on", "b": 100}

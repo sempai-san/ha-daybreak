@@ -138,6 +138,7 @@ class ClimateRun:
         self.context = Context()
         # Called with (entity_id, service, data) for every command (history).
         self.on_command: Any = None
+        self.on_acked: Any = None
         self.active: list[str] = []
         self.paused = False
         self.finished = False
@@ -275,8 +276,7 @@ class ClimateRun:
             await self._call(domain, "turn_off", entity_id)
 
     async def _call(self, domain: str, service: str, entity_id: str, **data: Any) -> None:
-        if self.on_command:
-            self.on_command([entity_id], f"{domain}.{service}", data)
+        cmds = self.on_command([entity_id], f"{domain}.{service}", data) if self.on_command else []
         try:
             await self.hass.services.async_call(
                 domain,
@@ -285,7 +285,11 @@ class ClimateRun:
                 blocking=True,
                 context=self.context,
             )
+            if self.on_acked:
+                self.on_acked(cmds)
         except Exception:  # one broken device must not stop the others
+            if self.on_acked:
+                self.on_acked(cmds, False)
             _LOGGER.warning(
                 "DayBreak: %s.%s failed for %s", domain, service, entity_id, exc_info=True
             )
