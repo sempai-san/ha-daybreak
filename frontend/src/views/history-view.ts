@@ -1,6 +1,6 @@
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
-import type { DeviceValues, HistoryDevice, HistoryEntry, HistoryStep, HomeAssistant, Snapshot } from "../api";
+import type { CheckSample, DeviceValues, HistoryDevice, HistoryEntry, HistoryStep, HomeAssistant, Snapshot } from "../api";
 import { t, type StringKey } from "../i18n";
 import { shared } from "../styles";
 import { define, formatDay, formatTime, localDate } from "../util";
@@ -19,6 +19,7 @@ const STEP_PHASE: Record<string, Phase> = {
   climate_start: "prep",
   climate_not_needed: "prep",
   presence: "prep",
+  initial: "prep",
   skipped: "prep",
   cancelled: "prep",
   start: "sunrise",
@@ -40,6 +41,7 @@ const ICONS: Record<string, string> = {
   climate_start: "🌡",
   climate_not_needed: "🌡",
   presence: "🏠",
+  initial: "📋",
   skipped: "⏭",
   cancelled: "✖",
   start: "🌅",
@@ -426,6 +428,18 @@ export class DbHistoryView extends LitElement {
         top: 0;
         bottom: 0;
       }
+      .ldot {
+        position: absolute;
+        top: 4px;
+        width: 8px;
+        height: 8px;
+        margin-left: -4px;
+        border-radius: 50%;
+        background: #5a7fa8;
+      }
+      .ldot.warn {
+        background: var(--st-warn);
+      }
       .lcmd,
       .lout {
         position: absolute;
@@ -634,6 +648,8 @@ export class DbHistoryView extends LitElement {
           title: v("hx_climate_not_needed_t"),
           text: step.room != null ? v("hx_climate_not_needed_d", { room: step.room }) : v("hx_climate_not_needed_x"),
         };
+      case "initial":
+        return { title: v("hx_initial_t"), text: v("hx_initial_d", { n: step.snapshot?.length ?? 0 }) };
       case "presence":
         return { title: v("hx_presence_t"), text: v("hx_presence_d", { who: step.detail || "?" }) };
       case "skipped":
@@ -732,6 +748,7 @@ export class DbHistoryView extends LitElement {
     const times = [
       ...entry.steps.map((s) => Date.parse(s.t)),
       ...Object.values(entry.devices ?? {}).flatMap((d) => d.log.map((x) => Date.parse(x.t))),
+      ...(entry.checks_log ?? []).map((c) => Date.parse(c.t)),
     ];
     const from = Math.min(...times);
     return [from, Math.max(...times, from + 1000)];
@@ -754,13 +771,15 @@ export class DbHistoryView extends LitElement {
   private _lanes(entry: HistoryEntry) {
     const hass = this.hass;
     const devices = Object.entries(entry.devices ?? {});
-    if (!devices.length) return nothing;
+    const checks = entry.checks_log ?? [];
+    if (!devices.length && !checks.length) return nothing;
     const [from, to] = this._range(entry);
     const pos = (ms: number) => ((ms - from) / (to - from)) * 100;
     const end = entry.result === "running" ? Math.min(Date.now(), to) : to;
     return html`<div class="lanes">
       <div class="lbl">${t(hass, "hx_devices")}</div>
       <div class="muted">${t(hass, "hx_devices_hint")}</div>
+      ${checks.length ? this._checksLane(entry, checks, pos) : nothing}
       ${devices.map(([id, dev]) => {
         const states = dev.log.filter((x) => !x.cmd);
         const cmds = dev.log.filter((x) => x.cmd);
@@ -791,6 +810,55 @@ export class DbHistoryView extends LitElement {
         <span style="--c:var(--st-problem)">${t(hass, "hx_lg_unavail")}</span>
       </div>
     </div>`;
+  }
+
+  /** One dot per weather/travel check before the start; yellow = alarm moved earlier. */
+  private _checksLane(entry: HistoryEntry, checks: CheckSample[], pos: (ms: number) => number) {
+    const hass = this.hass;
+    const key = `${entry.id}|checks`;
+    const open = this._openDev[key];
+    const first = checks[0];
+    const last = checks[checks.length - 1];
+    const vals = (c: CheckSample) =>
+      [
+        c.weather ? this._weather(c.weather) : "",
+        c.temperature != null ? `${c.temperature} °C` : "",
+        c.warning ? t(hass, "hx_checks_warning", { n: c.warning }) : "",
+        c.travel != null ? t(hass, "hx_checks_travel", { min: c.travel }) : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    return html`<div class="lane">
+      <button class="lh" aria-expanded=${!!open} @click=${() => (this._openDev = { ...this._openDev, [key]: !open })}>
+        <span>🌦 ${t(hass, "hx_checks_lane")}</span>
+        <span class="muted">${t(hass, "hx_checks_sum", {
+          n: checks.length,
+          from: this._time(entry, first.t),
+          to: this._time(entry, last.t),
+        })}</span>
+        <span class="muted">${open ? "▴" : "▾"}</span>
+      </button>
+      <div class="ltrack">
+        ${checks.map(
+          (c) => html`<span class="ldot ${c.minutes ? "warn" : ""}" style="left:${pos(Date.parse(c.t))}%"
+            title=${`${this._time(entry, c.t)} ${vals(c)} → ${c.minutes ? `−${c.minutes} min` : "±0"}`}></span>`,
+        )}
+      </div>
+      ${open
+        ? html`<div class="dtab-wrap"><table class="dtab">
+            <thead><tr><th>${t(hass, "hx_col_time")}</th><th>${t(hass, "hx_col_values")}</th><th>${t(hass, "hx_col_result")}</th></tr></thead>
+            <tbody>${checks.map(
+              (c) => html`<tr><td>${this._time(entry, c.t)}</td><td>${vals(c) || "–"}</td>
+                <td class=${c.minutes ? "slow" : ""}>${c.minutes ? t(hass, "hx_checks_earlier", { min: c.minutes, why: "" }).replace(" ()", "") : t(hass, "hx_checks_same")}</td></tr>`,
+            )}</tbody></table></div>`
+        : nothing}
+    </div>`;
+  }
+
+  private _weather(w: string): string {
+    const key = `hx_wx_${w}`;
+    const text = t(this.hass, key as StringKey);
+    return text === key ? w : text;
   }
 
   /** Readable values: "on · 45 % · 2700 K" */
@@ -899,6 +967,11 @@ export class DbHistoryView extends LitElement {
         add("outdoor", step.outdoor != null ? `${step.outdoor} °C` : null);
         add("limit_below", step.limit_below != null ? `${step.limit_below} °C` : null);
         add("limit_above", step.limit_above != null ? `${step.limit_above} °C` : null);
+        break;
+      case "initial":
+        for (const d of step.snapshot ?? []) {
+          f.push([d.name, this._values({ domain: d.domain, name: d.name, log: [] }, d.a)]);
+        }
         break;
       case "climate_start":
       case "climate_not_needed":

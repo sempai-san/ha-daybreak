@@ -1414,6 +1414,23 @@ class DaybreakManager:
         old = holder.shift.minutes
         changed_parts = result.parts != holder.shift.parts
         entry = run.journal if run else self._occurrence(alarm_id, base)
+        # Every check with its values, and how the devices are meanwhile.
+        checks = entry.setdefault("checks_log", [])
+        if len(checks) < 60:
+            checks.append(
+                {
+                    "t": dt_util.utcnow().isoformat(),
+                    "weather": inputs.condition,
+                    "temperature": inputs.temperature,
+                    "warning": inputs.warning_level or None,
+                    "travel": round(inputs.travel_minutes)
+                    if inputs.travel_minutes is not None
+                    else None,
+                    "minutes": result.minutes,
+                }
+            )
+        if not run:
+            self._device_watch(entry, self._devices_of(alarm))
         sig = [result.minutes, sorted(p["reason"] for p in result.parts)]
         if entry.get("checks") != sig:
             entry["checks"] = sig
@@ -1874,6 +1891,20 @@ class DaybreakManager:
                 )
             if self._is_holiday(day) and not alarm["wake_on_holidays"] and decision:
                 self._step(run.journal, "holiday_override", level="info")
+        if not test:
+            self._step(
+                run.journal,
+                "initial",
+                level="info",
+                snapshot=[
+                    {
+                        "name": self._friendly(e),
+                        "domain": e.split(".", 1)[0],
+                        "a": self._snapshot(self.hass.states.get(e)),
+                    }
+                    for e in self._related(alarm)
+                ],
+            )
         self._step(
             run.journal,
             "start",
@@ -2032,15 +2063,55 @@ class DaybreakManager:
         log = devices[entity_id]["log"]
         return log if len(log) < DEVICE_SAMPLES else None
 
+    def _devices_of(self, alarm: dict[str, Any]) -> list[str]:
+        """Lamps, speakers and climate devices an alarm controls."""
+        devices = list(self._resolve_lights(alarm["light"]["targets"]))
+        if self._audio_on(alarm):
+            devices += alarm["audio"]["players"]
+        if alarm["climate"]["enabled"]:
+            devices += alarm["climate"]["devices"]
+        return list(dict.fromkeys(devices))
+
+    def _related(self, alarm: dict[str, Any]) -> list[str]:
+        """Everything an alarm depends on: devices, presence, windows, sensors."""
+        related = self._devices_of(alarm) + self._presence_entities(alarm)
+        if alarm["climate"]["enabled"]:
+            related += alarm["climate"]["windows"]
+            if alarm["climate"]["room_sensor"]:
+                related.append(alarm["climate"]["room_sensor"])
+        shift = alarm["shift"]
+        if shift["weather"]["enabled"] and self.settings["weather_entity"]:
+            related.append(self.settings["weather_entity"])
+        if shift["travel"]["enabled"] and shift["travel"]["sensor"]:
+            related.append(shift["travel"]["sensor"])
+        return [e for e in dict.fromkeys(related) if e]
+
+    @callback
+    def _device_watch(self, entry: dict[str, Any], entity_ids: list[str]) -> None:
+        """Before the start: note a device's state when it differs from the last one."""
+        for entity_id in entity_ids:
+            log = self._device_log(entry, entity_id)
+            if log is None:
+                continue
+            snap = self._snapshot(self.hass.states.get(entity_id))
+            last = next((x for x in reversed(log) if "cmd" not in x), None)
+            if not last or last["a"] != snap:
+                log.append({"t": dt_util.utcnow().isoformat(), "a": snap, "by": "before"})
+
     @callback
     def _device_start(self, entry: dict[str, Any] | None, entity_ids: list[str]) -> None:
         """Remember how the devices were before DayBreak did anything."""
         for entity_id in entity_ids:
-            if (log := self._device_log(entry, entity_id)) is not None and not log:
+            log = self._device_log(entry, entity_id)
+            if log is None:
+                continue
+            snap = self._snapshot(self.hass.states.get(entity_id))
+            last = next((x for x in reversed(log) if "cmd" not in x), None)
+            if not last or last["a"] != snap:
                 log.append(
                     {
                         "t": dt_util.utcnow().isoformat(),
-                        "a": self._snapshot(self.hass.states.get(entity_id)),
+                        "a": snap,
                         "by": "before",
                     }
                 )

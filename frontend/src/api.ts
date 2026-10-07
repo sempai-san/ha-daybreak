@@ -504,6 +504,7 @@ export interface HistoryStep {
   limit_above?: number | null;
   samples?: number;
   skipped?: string[];
+  snapshot?: { name: string; domain: string; a: DeviceValues }[];
 }
 
 /** Compact device values: s state, b brightness %, k kelvin, c colour, v volume %,
@@ -533,6 +534,15 @@ export interface DeviceSample {
   lat?: number;
 }
 
+export interface CheckSample {
+  t: string;
+  weather?: string | null;
+  temperature?: number | null;
+  warning?: number | null;
+  travel?: number | null;
+  minutes: number;
+}
+
 export interface HistoryDevice {
   name: string;
   domain: string;
@@ -555,6 +565,7 @@ export interface HistoryEntry {
   base?: string;
   steps: HistoryStep[];
   devices?: Record<string, HistoryDevice>;
+  checks_log?: CheckSample[];
 }
 
 export type AlarmAction =

@@ -64,7 +64,10 @@ async def test_real_alarm_with_checks(
     entry = manager.history[0]
     assert entry["result"] == "stopped"
     steps = [s["step"] for s in entry["steps"]]
-    assert steps == ["checks", "presence", "start", "ring", "end"]
+    assert steps == ["checks", "presence", "initial", "start", "ring", "end"]
+    initial = entry["steps"][2]["snapshot"]
+    assert {"name": "Jan", "domain": "person", "a": {"s": "home"}} in initial
+    assert entry["checks_log"][0]["travel"] == 45
     assert entry["steps"][1]["detail"] == "Jan"
     assert entry["steps"][1]["states"] == [{"name": "Jan", "state": "home"}]
     assert entry["steps"][0]["travel_entity"] == "travel"
