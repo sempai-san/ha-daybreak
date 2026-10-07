@@ -188,7 +188,7 @@ Each rule reads like a sentence:
 Pick one to see its course:
 - a **headline in plain words** ("Everything worked", "There was 1 problem", "Skipped – nobody was at home"),
 - a **time bar** with preparation, sunrise, ringing, snoozing and last call, problems as red dots,
-- a **step-by-step flow** in four phases (preparation, sunrise, waking up, end): weather and travel checks, calendar, climate, presence, lamps, music, phone notifications, own actions, snoozes and how it ended. It also lists **what the lamps and speakers did** (on/off, playing/paused/stopped) and whether DayBreak or something else (a tap on the speaker, an app, another automation) caused it. Every problem comes with a short **"What you can do"**.
+- a **step-by-step flow** in four phases (preparation, sunrise, waking up, end): weather and travel checks, calendar, climate, presence, lamps, music, phone notifications, own actions, snoozes and how it ended. It also shows **every device on its own lane**, all on the same time axis: lamps in their brightness and light colour, speakers playing or stopped, climate devices heating or cooling, with DayBreak's commands and changes from outside (a tap on the speaker, an app, another automation) marked. Tap a device for every change with **before → after** (brightness %, colour temperature, colour, volume, title, target and room temperature) and how long the device took to react. Checks show their data too: the calendar entry with the keywords that were recognised, the weather and travel values and entities, the presence and window states, room and outdoor temperature for the climate.
 
 The history keeps the last 30 entries.
 

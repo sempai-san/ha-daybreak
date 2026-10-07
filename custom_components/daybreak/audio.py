@@ -47,6 +47,7 @@ class AlarmAudio:
         speed: float = 1.0,
         on_problem: Callable[[str], None] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
+        on_command: Callable[[list[str], str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.hass = hass
         self.audio = audio
@@ -56,6 +57,7 @@ class AlarmAudio:
         self._on_button = on_button
         self._on_problem = on_problem
         self._on_event = on_event
+        self._on_command = on_command
         # Time lapse of a test run: the ramp runs this many times faster.
         self._speed = max(speed, 1.0)
         self._saved: dict[str, float] = {}
@@ -92,6 +94,11 @@ class AlarmAudio:
         """
         if quiet:
             self._quiet_until = dt_util.utcnow() + QUIET
+        if self._on_command and domain in ("media_player", "music_assistant"):
+            ids = target.get(ATTR_ENTITY_ID, self.players)
+            self._on_command(
+                list(ids) if isinstance(ids, list) else [ids], f"{domain}.{service}", data
+            )
         try:
             await self.hass.services.async_call(
                 domain,

@@ -147,6 +147,8 @@ TRAVEL_LIVE = timedelta(hours=3)
 # The history keeps this many runs, each with at most this many steps.
 HISTORY_MAX = 30
 HISTORY_STEPS = 80
+# Per device and history entry: this many samples (states and commands).
+DEVICE_SAMPLES = 120
 # Ringing effects.
 EFFECT_INTERVAL = timedelta(seconds=2)
 PULSE_LOW = 0.35
@@ -1117,7 +1119,7 @@ class DaybreakManager:
             entry = self._occurrence(alarm_id, base)
             entry["alarm_time"] = (base - timedelta(minutes=runtime.shift.minutes)).isoformat()
             entry["started"] = dt_util.utcnow().isoformat()
-            self._step(entry, "skipped", level="warn", reason="away")
+            self._step(entry, "skipped", level="warn", reason="away", states=self._states(entities))
             entry["ended"] = entry["started"]
             entry["result"] = "skipped"
             self._fire(
@@ -1137,7 +1139,12 @@ class DaybreakManager:
                 for e in entities
                 if (st := self.hass.states.get(e)) and st.state in _HOME_STATES
             ]
-            self._step(self._occurrence(alarm_id, base), "presence", detail=", ".join(home))
+            self._step(
+                self._occurrence(alarm_id, base),
+                "presence",
+                detail=", ".join(home),
+                states=self._states(entities),
+            )
         alarm_time = base - timedelta(minutes=runtime.shift.minutes)
         light_start = alarm_time - timedelta(minutes=self._lead(alarm, base))
         await self._async_start_run(
@@ -1249,7 +1256,20 @@ class DaybreakManager:
             entry = self._occurrence(alarm_id, runtime.base_time)
             if entry.get("climate_wait") != why:
                 entry["climate_wait"] = why
-                self._step(entry, "climate_wait", level="info", reason=why, outdoor=outdoor)
+                self._step(
+                    entry,
+                    "climate_wait",
+                    level="info",
+                    reason=why,
+                    outdoor=outdoor,
+                    states=self._states(
+                        config.windows if why == "window" else self._presence_entities(alarm)
+                    )
+                    if why != "outdoor"
+                    else None,
+                    limit_below=s["outdoor_below"],
+                    limit_above=s["outdoor_above"],
+                )
         if waiting or now < start_at - timedelta(seconds=30):
             # Not yet (or conditions not met): look again later; a learned
             # start is re-estimated with fresh values every time.
@@ -1274,9 +1294,20 @@ class DaybreakManager:
         )
         run.base = runtime.base_time
         runtime.climate = run
+        entry = self._occurrence(alarm_id, runtime.base_time) if runtime.base_time else None
+        room = room_temperature(self.hass, config)
+        if entry is not None:
+            self._device_start(entry, list(config.devices))
+            run.on_command = partial(self._device_command, entry)
+            run._unsubs.append(
+                async_track_state_change_event(
+                    self.hass,
+                    list(config.devices),
+                    partial(self._device_changed, entry, run.context.id),
+                )
+            )
         await run.async_start()
-        if runtime.base_time:
-            entry = self._occurrence(alarm_id, runtime.base_time)
+        if entry is not None:
             if run.active:
                 self._step(
                     entry,
@@ -1287,13 +1318,18 @@ class DaybreakManager:
                     learned=s["start"] == "learned",
                     devices=len(run.active),
                     paused=run.paused,
+                    room=room,
+                    outdoor=outdoor,
+                    samples=len(self._climate_learn.get(alarm_id, [])),
+                    skipped=[self._friendly(e) for e in config.devices if e not in run.active],
                 )
             else:
                 self._step(
                     entry,
                     "climate_not_needed",
                     level="info",
-                    room=room_temperature(self.hass, config),
+                    room=room,
+                    target=s["temperature"],
                 )
         self._notify(alarm_id)
 
@@ -1391,6 +1427,18 @@ class DaybreakManager:
                 temperature=inputs.temperature,
                 warning=inputs.warning_level or None,
                 travel=round(inputs.travel_minutes) if inputs.travel_minutes is not None else None,
+                weather_entity=self._friendly(self.settings["weather_entity"])
+                if alarm["shift"]["weather"]["enabled"] and self.settings["weather_entity"]
+                else None,
+                travel_entity=self._friendly(alarm["shift"]["travel"]["sensor"])
+                if alarm["shift"]["travel"]["enabled"] and alarm["shift"]["travel"]["sensor"]
+                else None,
+                usual=alarm["shift"]["travel"]["usual"]
+                if alarm["shift"]["travel"]["enabled"]
+                else None,
+                parts=[{"reason": p["reason"], "minutes": p["minutes"]} for p in result.parts],
+                limit=alarm["shift"]["max"],
+                combine=alarm["shift"]["combine"],
             )
         holder.shift = result
         if not run:
@@ -1822,6 +1870,7 @@ class DaybreakManager:
                     time=decision.time.isoformat() if decision.time else None,
                     travel=decision.travel,
                     other=other["name"] if other else "",
+                    **self._calendar_details(alarm, decision),
                 )
             if self._is_holiday(day) and not alarm["wake_on_holidays"] and decision:
                 self._step(run.journal, "holiday_override", level="info")
@@ -1841,6 +1890,7 @@ class DaybreakManager:
         watched = [*lights]
         if self._audio_on(alarm):
             watched += alarm["audio"]["players"]
+        self._device_start(run.journal, watched)
         if watched:
             run.unsubs.append(
                 async_track_state_change_event(
@@ -1872,6 +1922,9 @@ class DaybreakManager:
                 speed=run.speed or 1.0,
                 on_problem=partial(self._problem, alarm_id, "audio"),
                 on_event=partial(self._audio_event, run),
+                on_command=lambda ids, service, data, entry=run.journal: self._device_command(
+                    entry, ids, service, data
+                ),
             )
             audio_at = alarm_time - timedelta(minutes=alarm["audio"]["lead"])
             if run.speed:
@@ -1901,9 +1954,156 @@ class DaybreakManager:
             return
         await self._async_step(alarm_id)
 
+    def _states(self, entity_ids: list[str]) -> list[dict[str, Any]]:
+        """Name and state of some entities (presence, windows)."""
+        return [
+            {
+                "name": self._friendly(e),
+                "state": st.state if (st := self.hass.states.get(e)) else "missing",
+            }
+            for e in entity_ids
+        ]
+
+    def _calendar_details(self, alarm: dict[str, Any], decision: Decision) -> dict[str, Any]:
+        """The event behind a calendar decision and what the rule recognised in it."""
+        event = decision.event
+        rules = (alarm.get("calendar") or {}).get("rules", [])
+        rule = rules[decision.rule] if 0 <= decision.rule < len(rules) else None
+        if not event:
+            return {}
+        text = f"{event.summary}\n{event.description}".casefold()
+        info: dict[str, Any] = {
+            "calendar": self._friendly(event.calendar),
+            "event_start": None if event.all_day else event.start.isoformat(),
+            "all_day": event.all_day,
+            "location": event.location or None,
+        }
+        if rule:
+            info["keywords"] = rule["keywords"]
+            info["found"] = [w for w in rule["keywords"] if w.casefold() in text]
+            info["match"] = rule["match"]
+            info["before"] = rule["before"] if rule["action"] == "before" else None
+        return info
+
+    @staticmethod
+    def _snapshot(state: Any) -> dict[str, Any]:
+        """The values of a device that matter for an alarm, compact."""
+        if state is None:
+            return {"s": "missing"}
+        attrs = state.attributes
+        domain = state.entity_id.split(".", 1)[0]
+        snap: dict[str, Any] = {"s": state.state}
+        if domain == "light" and state.state == "on":
+            if (bri := attrs.get("brightness")) is not None:
+                snap["b"] = round(bri / 255 * 100)
+            if attrs.get("color_mode") in ("color_temp", None) and attrs.get("color_temp_kelvin"):
+                snap["k"] = attrs["color_temp_kelvin"]
+            elif rgb := attrs.get("rgb_color"):
+                snap["c"] = "#" + "".join(f"{int(x):02x}" for x in rgb[:3])
+        elif domain == "media_player":
+            if (vol := attrs.get("volume_level")) is not None:
+                snap["v"] = round(float(vol) * 100)
+            if title := attrs.get("media_title"):
+                snap["m"] = str(title)[:60]
+        elif domain in ("climate", "water_heater"):
+            for key, short in (("temperature", "tt"), ("current_temperature", "ct")):
+                if (value := attrs.get(key)) is not None:
+                    snap[short] = value
+            if action := attrs.get("hvac_action"):
+                snap["a"] = action
+        elif domain in ("fan", "humidifier"):
+            for key, short in (("percentage", "p"), ("humidity", "h")):
+                if (value := attrs.get(key)) is not None:
+                    snap[short] = value
+        return snap
+
+    def _device_log(
+        self, entry: dict[str, Any] | None, entity_id: str
+    ) -> list[dict[str, Any]] | None:
+        if not entry:
+            return None
+        devices = entry.setdefault("devices", {})
+        if entity_id not in devices:
+            devices[entity_id] = {
+                "name": self._friendly(entity_id),
+                "domain": entity_id.split(".", 1)[0],
+                "log": [],
+            }
+        log = devices[entity_id]["log"]
+        return log if len(log) < DEVICE_SAMPLES else None
+
+    @callback
+    def _device_start(self, entry: dict[str, Any] | None, entity_ids: list[str]) -> None:
+        """Remember how the devices were before DayBreak did anything."""
+        for entity_id in entity_ids:
+            if (log := self._device_log(entry, entity_id)) is not None and not log:
+                log.append(
+                    {
+                        "t": dt_util.utcnow().isoformat(),
+                        "a": self._snapshot(self.hass.states.get(entity_id)),
+                        "by": "before",
+                    }
+                )
+
+    @callback
+    def _device_command(
+        self,
+        entry: dict[str, Any] | None,
+        entity_ids: list[str],
+        service: str,
+        data: dict[str, Any],
+    ) -> None:
+        """A command DayBreak sends (target values and transition)."""
+        target: dict[str, Any] = {}
+        if (bri := data.get("brightness")) is not None:
+            target["b"] = round(bri / 255 * 100)
+        if (pct := data.get("brightness_pct")) is not None:
+            target["b"] = pct
+        if kelvin := data.get("color_temp_kelvin"):
+            target["k"] = kelvin
+        if rgb := data.get("rgb_color"):
+            target["c"] = "#" + "".join(f"{int(x):02x}" for x in rgb[:3])
+        if (vol := data.get("volume_level")) is not None:
+            target["v"] = round(float(vol) * 100)
+        for key, short in (("transition", "tr"), ("temperature", "tt"), ("hvac_mode", "s")):
+            if data.get(key) is not None:
+                target[short] = data[key]
+        now = dt_util.utcnow().isoformat()
+        for entity_id in entity_ids:
+            if (log := self._device_log(entry, entity_id)) is not None:
+                log.append({"t": now, "cmd": service, "a": target})
+
+    @callback
+    def _device_changed(
+        self, entry: dict[str, Any] | None, context_id: str, event: Event[EventStateChangedData]
+    ) -> None:
+        """A device changed: new values, who did it, how long after our command."""
+        new = event.data["new_state"]
+        log = self._device_log(entry, event.data["entity_id"])
+        if log is None or new is None:
+            return
+        snap = self._snapshot(new)
+        last_state = next((x for x in reversed(log) if "cmd" not in x), None)
+        if last_state and last_state["a"] == snap:
+            return
+        ours = new.context.id == context_id or new.context.parent_id == context_id
+        sample: dict[str, Any] = {
+            "t": dt_util.utcnow().isoformat(),
+            "a": snap,
+            "by": "daybreak" if ours else "outside",
+        }
+        cmd = next((x for x in reversed(log) if "cmd" in x), None)
+        if ours and cmd:
+            sample["lat"] = round(
+                (dt_util.utcnow() - dt_util.parse_datetime(cmd["t"])).total_seconds(), 1
+            )
+        log.append(sample)
+        self._save()
+
     @callback
     def _on_device_state(self, run: AlarmRun, event: Event[EventStateChangedData]) -> None:
         """Lamps and speakers: log every on/off/playing/paused change and who did it."""
+        self._device_changed(run.journal, run.context.id, event)
         old, new = event.data["old_state"], event.data["new_state"]
         if not new or (old and old.state == new.state):
             return
@@ -2151,6 +2351,7 @@ class DaybreakManager:
         await self._async_call_light("turn_off", run, {ATTR_ENTITY_ID: lights})
 
     async def _async_call_light(self, service: str, run: AlarmRun, data: dict[str, Any]) -> None:
+        self._device_command(run.journal, list(data[ATTR_ENTITY_ID]), service, data)
         try:
             await self.hass.services.async_call(
                 "light", service, data, blocking=True, context=run.context

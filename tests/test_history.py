@@ -66,6 +66,12 @@ async def test_real_alarm_with_checks(
     steps = [s["step"] for s in entry["steps"]]
     assert steps == ["checks", "presence", "start", "ring", "end"]
     assert entry["steps"][1]["detail"] == "Jan"
+    assert entry["steps"][1]["states"] == [{"name": "Jan", "state": "home"}]
+    assert entry["steps"][0]["travel_entity"] == "travel"
+    # The lamp: how it was before, the commands and the states.
+    log = entry["devices"][LIGHT]["log"]
+    assert log[0]["by"] == "before" and log[0]["a"] == {"s": "off"}
+    assert any(x.get("cmd") == "turn_on" for x in log)
     # Same occurrence: no second entry.
     assert len([e for e in manager.history if e["alarm_id"] == alarm["id"]]) == 1
 
@@ -96,3 +102,24 @@ async def test_nobody_home_is_logged(
     # Not logged a second time by the missed-day check.
     await advance(hass, freezer, timedelta(minutes=15), step=60)
     assert len(manager.history) == 1
+
+
+async def test_lamp_states_and_reaction_time(
+    hass: HomeAssistant, manager, lights, freezer: FrozenDateTimeFactory
+) -> None:
+    _monday(freezer, 6, 25)
+    alarm = await manager.async_create(_alarm(light_lead=10))
+    await hass.async_block_till_done()
+    run = manager._runtime[alarm["id"]].run
+    freezer.tick(timedelta(seconds=0.4))
+    hass.states.async_set(
+        LIGHT,
+        "on",
+        {"supported_color_modes": ["brightness"], "brightness": 128},
+        context=run.context,
+    )
+    await hass.async_block_till_done()
+    log = manager.history[0]["devices"][LIGHT]["log"]
+    state = log[-1]
+    assert state["a"] == {"s": "on", "b": 50}
+    assert state["by"] == "daybreak" and state["lat"] == pytest.approx(0.4, abs=0.2)

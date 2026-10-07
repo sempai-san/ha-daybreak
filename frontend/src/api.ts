@@ -485,6 +485,58 @@ export interface HistoryStep {
   old?: string | null;
   new?: string;
   by?: "daybreak" | "outside";
+  calendar?: string;
+  event_start?: string | null;
+  all_day?: boolean;
+  location?: string | null;
+  keywords?: string[];
+  found?: string[];
+  match?: string;
+  before?: number | null;
+  weather_entity?: string | null;
+  travel_entity?: string | null;
+  usual?: number | null;
+  parts?: { reason: string; minutes: number }[];
+  limit?: number;
+  combine?: string;
+  states?: { name: string; state: string }[] | null;
+  limit_below?: number | null;
+  limit_above?: number | null;
+  samples?: number;
+  skipped?: string[];
+}
+
+/** Compact device values: s state, b brightness %, k kelvin, c colour, v volume %,
+ * m media title, tt/ct target/current temperature, a hvac action, p fan %, h humidity,
+ * tr transition (commands). */
+export interface DeviceValues {
+  s?: string;
+  b?: number;
+  k?: number;
+  c?: string;
+  v?: number;
+  m?: string;
+  tt?: number;
+  ct?: number;
+  a?: string;
+  p?: number;
+  h?: number;
+  tr?: number;
+}
+
+export interface DeviceSample {
+  t: string;
+  a: DeviceValues;
+  cmd?: string;
+  by?: "before" | "daybreak" | "outside";
+  /** Seconds between DayBreak's command and this state. */
+  lat?: number;
+}
+
+export interface HistoryDevice {
+  name: string;
+  domain: string;
+  log: DeviceSample[];
 }
 
 export interface HistoryEntry {
@@ -502,6 +554,7 @@ export interface HistoryEntry {
   warn?: boolean;
   base?: string;
   steps: HistoryStep[];
+  devices?: Record<string, HistoryDevice>;
 }
 
 export type AlarmAction =
