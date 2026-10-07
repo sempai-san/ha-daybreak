@@ -47,6 +47,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_preview)
     websocket_api.async_register_command(hass, ws_calendar_preview)
     websocket_api.async_register_command(hass, ws_test)
+    websocket_api.async_register_command(hass, ws_history_entry)
     websocket_api.async_register_command(hass, ws_once)
     websocket_api.async_register_command(hass, ws_ma_search)
     websocket_api.async_register_command(hass, ws_phones)
@@ -64,7 +65,7 @@ def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "light_profiles": manager.all_light_profiles(),
         "last_call_profiles": manager.all_last_call_profiles(),
         "climate_profiles": manager.all_climate_profiles(),
-        "history": manager.history,
+        "history": manager.history_summary(),
     }
 
 
@@ -314,6 +315,20 @@ async def ws_preview(
         _error(connection, msg["id"], err)
         return
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "daybreak/history/entry", vol.Required("entry_id"): str}
+)
+@callback
+def ws_history_entry(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """One history entry with DayBreak's commands and the service durations."""
+    try:
+        connection.send_result(msg["id"], get_manager(hass).history_entry(msg["entry_id"]))
+    except HomeAssistantError as err:
+        _error(connection, msg["id"], err)
 
 
 @websocket_api.websocket_command(

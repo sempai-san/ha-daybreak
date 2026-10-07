@@ -271,6 +271,9 @@ export interface CalendarPreviewDay {
   decision: CalendarDecision | null;
 }
 
+export const historyEntry = (hass: HomeAssistant, entryId: string) =>
+  hass.callWS<HistoryEntry>({ type: "daybreak/history/entry", entry_id: entryId });
+
 export const calendarPreview = (hass: HomeAssistant, alarm: Partial<AlarmConfig> & { id?: string }) =>
   hass.callWS<{ days: CalendarPreviewDay[] }>({ type: "daybreak/calendar/preview", alarm });
 
@@ -505,6 +508,8 @@ export interface HistoryStep {
   samples?: number;
   skipped?: string[];
   snapshot?: { name: string; domain: string; a: DeviceValues }[];
+  after?: number | null;
+  per_degree?: number;
 }
 
 /** Compact device values: s state, b brightness %, k kelvin, c colour, v volume %,
@@ -517,7 +522,7 @@ export interface DeviceValues {
   c?: string;
   v?: number;
   m?: string;
-  tt?: number;
+  tt?: number | string;
   ct?: number;
   a?: string;
   p?: number;
@@ -549,6 +554,31 @@ export interface HistoryDevice {
   log: DeviceSample[];
 }
 
+/** A command DayBreak sent: when, to which entity, target values and timing
+ * (ack = the integration accepted it, seen = HA reported the new state; seconds). */
+export interface HistoryCommand {
+  t: string;
+  e: string;
+  s: string;
+  a: DeviceValues;
+  ack: number | null;
+  seen: number | null;
+  ok?: boolean;
+  /** Values the device reported after the command. */
+  got?: DeviceValues;
+}
+
+/** Duration of an outside service (calendar, Waze, push, checks, actions). */
+export interface HistoryCall {
+  t?: string;
+  k: string;
+  ms: number;
+  ok: boolean;
+  what?: string;
+  phase?: string;
+  minutes?: number;
+}
+
 export interface HistoryEntry {
   id: string;
   alarm_id: string;
@@ -564,8 +594,13 @@ export interface HistoryEntry {
   warn?: boolean;
   base?: string;
   steps: HistoryStep[];
-  devices?: Record<string, HistoryDevice>;
-  checks_log?: CheckSample[];
+  /** Entities the alarm used (values from the recorder): name and role. */
+  entities?: Record<string, { n: string; r: string }>;
+  cmds?: HistoryCommand[];
+  /** Lamp changes from outside (the recorder keeps no brightness/colour). */
+  ext?: { t: string; e: string; a: DeviceValues }[];
+  calls?: HistoryCall[];
+  cmd_count?: number;
 }
 
 export type AlarmAction =
