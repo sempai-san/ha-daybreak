@@ -4,11 +4,11 @@
   "codeowners": ["@sempai-san"],
   "config_flow": true,
   "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
-  "documentation": "https://github.com/sempai-san/hacs_daybreak",
+  "documentation": "https://github.com/sempai-san/ha-daybreak",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/sempai-san/hacs_daybreak/issues",
+  "issue_tracker": "https://github.com/sempai-san/ha-daybreak/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.8.1"
+  "version": "0.8.2"
 }
