@@ -9,7 +9,7 @@
 > - Use DayBreak at your own risk and make a **backup** before you install or update it.
 > - **Do not rely on DayBreak as your only alarm** for anything important (flights, exams, medication). Keep a second alarm, e.g. on your phone.
 > - DayBreak controls real devices: lights, speakers, heating and air conditioning. Check your settings, especially for climate devices.
-> - Bug reports are very welcome in the [issue tracker](https://github.com/sempai-san/hacs_daybreak/issues).
+> - Bug reports are very welcome in the [issue tracker](https://github.com/sempai-san/ha-daybreak/issues).
 
 DayBreak wakes you up gently: your lights fade in like a sunrise before the alarm time, music gets louder, and the bedroom is already warm. You manage alarms in a dedicated sidebar panel and control them from dashboard cards. Every alarm is also available to automations as entities, events and actions.
 
@@ -122,7 +122,7 @@ Requires Home Assistant **2026.2** or newer.
 ### HACS (custom repository)
 
 1. In HACS, open the menu (⋮) → **Custom repositories**.
-2. Add `https://github.com/sempai-san/hacs_daybreak` with type **Integration**.
+2. Add `https://github.com/sempai-san/ha-daybreak` with type **Integration**.
 3. Install **DayBreak** and restart Home Assistant.
 4. Go to **Settings → Devices & services → Add integration → DayBreak**.
 
@@ -302,7 +302,7 @@ DayBreak runs entirely inside your Home Assistant: no cloud, no telemetry, and t
 
 ## Reporting a problem
 
-Please [open an issue](https://github.com/sempai-san/hacs_daybreak/issues/new/choose) and fill in the form. The most useful attachment is the anonymised diagnostics file (**Settings → Devices & services → DayBreak → ⋮ → Download diagnostics**): entity ids are hashed and names, messages and locations are removed.
+Please [open an issue](https://github.com/sempai-san/ha-daybreak/issues/new/choose) and fill in the form. The most useful attachment is the anonymised diagnostics file (**Settings → Devices & services → DayBreak → ⋮ → Download diagnostics**): entity ids are hashed and names, messages and locations are removed.
 
 ## Development
 
