@@ -409,3 +409,44 @@ async def test_reload_restores_alarms(hass: HomeAssistant, manager) -> None:
     assert sorted(a["name"] for a in reloaded.alarms.values()) == ["A", "B"]
     assert reloaded.state(first["id"]) == "scheduled"
     assert hass.states.get("binary_sensor.daybreak_alarm_active").state == STATE_OFF
+
+
+async def test_non_admin_cannot_change_configuration(
+    hass: HomeAssistant, manager, hass_ws_client, hass_read_only_access_token
+) -> None:
+    """Alarm actions can call services, so only admins may edit alarms and settings."""
+    assert await async_setup_component(hass, "websocket_api", {})
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+    for payload in (
+        {"type": "daybreak/alarm/create", "alarm": {"name": "X", "wake": {"time": "07:00"}}},
+        {"type": "daybreak/settings", "changes": {"default_snooze_count": 9}},
+        {"type": "daybreak/phones"},
+        {"type": "daybreak/history/entry", "entry_id": "x"},
+    ):
+        await client.send_json_auto_id(payload)
+        msg = await client.receive_json()
+        assert not msg["success"] and msg["error"]["code"] == "unauthorized", payload
+    # Reading the alarms is fine.
+    await client.send_json_auto_id({"type": "daybreak/alarms"})
+    assert (await client.receive_json())["success"]
+
+
+async def test_diagnostics_have_no_personal_data(hass: HomeAssistant, manager) -> None:
+    from custom_components.daybreak.diagnostics import async_get_config_entry_diagnostics
+
+    hass.states.async_set("light.secret_bedroom", "off")
+    await manager.async_create(
+        {
+            "name": "Anna's alarm",
+            "wake": {"time": "07:00"},
+            "repeat": {"type": "once"},
+            "light": {"targets": {"entity_id": ["light.secret_bedroom"]}},
+        }
+    )
+
+    class _Entry:
+        runtime_data = manager
+
+    text = str(await async_get_config_entry_diagnostics(hass, _Entry()))
+    assert "secret_bedroom" not in text and "Anna" not in text
+    assert "light." in text and "daybreak_version" in text

@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, Unauthorized
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
@@ -53,7 +53,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_phones)
 
 
-def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
+def _snapshot(hass: HomeAssistant, connection: websocket_api.ActiveConnection) -> dict[str, Any]:
     manager = get_manager(hass)
     nxt = manager.next_overall()
     return {
@@ -65,7 +65,8 @@ def _snapshot(hass: HomeAssistant) -> dict[str, Any]:
         "light_profiles": manager.all_light_profiles(),
         "last_call_profiles": manager.all_last_call_profiles(),
         "climate_profiles": manager.all_climate_profiles(),
-        "history": manager.history_summary(),
+        # The history holds device states and presence: administrators only.
+        "history": manager.history_summary() if connection.user.is_admin else [],
     }
 
 
@@ -83,7 +84,7 @@ def ws_list(
 ) -> None:
     """Return all alarms with their runtime state."""
     try:
-        connection.send_result(msg["id"], _snapshot(hass))
+        connection.send_result(msg["id"], _snapshot(hass, connection))
     except HomeAssistantError as err:
         _error(connection, msg["id"], err)
 
@@ -102,7 +103,9 @@ def ws_subscribe(
         nonlocal pending
         pending = False
         with contextlib.suppress(HomeAssistantError):
-            connection.send_message(websocket_api.event_message(msg_id, _snapshot(hass)))
+            connection.send_message(
+                websocket_api.event_message(msg_id, _snapshot(hass, connection))
+            )
 
     @callback
     def _changed() -> None:
@@ -122,6 +125,7 @@ def ws_subscribe(
 @websocket_api.websocket_command(
     {vol.Required("type"): "daybreak/alarm/create", vol.Required("alarm"): dict}
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_create(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -141,6 +145,7 @@ async def ws_create(
         vol.Required("changes"): dict,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_update(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -157,6 +162,7 @@ async def ws_update(
 @websocket_api.websocket_command(
     {vol.Required("type"): "daybreak/alarm/delete", vol.Required("alarm_id"): str}
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_delete(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -217,6 +223,8 @@ async def ws_settings(
 ) -> None:
     """Read or change the global settings."""
     manager = get_manager(hass)
+    if "changes" in msg and not connection.user.is_admin:
+        raise Unauthorized
     try:
         if "changes" in msg:
             await manager.async_update_settings(msg["changes"])
@@ -234,6 +242,7 @@ async def ws_settings(
         vol.Optional("confirm", default=False): bool,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_profile_save(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -256,6 +265,7 @@ async def ws_profile_save(
         vol.Required("profile_id"): str,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_profile_delete(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -320,6 +330,7 @@ async def ws_preview(
 @websocket_api.websocket_command(
     {vol.Required("type"): "daybreak/history/entry", vol.Required("entry_id"): str}
 )
+@websocket_api.require_admin
 @callback
 def ws_history_entry(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -366,6 +377,7 @@ async def ws_test(
 @websocket_api.websocket_command(
     {vol.Required("type"): "daybreak/calendar/preview", vol.Required("alarm"): dict}
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_calendar_preview(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -421,6 +433,7 @@ MA_KEYS = {
         vol.Optional("media_type"): vol.Any(None, str),
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def ws_ma_search(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
@@ -460,6 +473,7 @@ async def ws_ma_search(
 
 
 @websocket_api.websocket_command({vol.Required("type"): "daybreak/phones"})
+@websocket_api.require_admin
 @callback
 def ws_phones(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
