@@ -1,4 +1,4 @@
-const ut = "0.8.0", Wt = window.__daybreakVersion ?? (customElements.get("daybreak-panel") ? "old" : void 0);
+const ut = "0.8.1", Wt = window.__daybreakVersion ?? (customElements.get("daybreak-panel") ? "old" : void 0);
 if (Wt && Wt !== ut) {
   const l = `daybreak-reloaded-${ut}`;
   let e = !1;
@@ -33,7 +33,7 @@ function Zs(l, e, t = 1) {
   let a = Et.get(s);
   return a || (a = l.callWS({ type: "daybreak/sun", date: e, days: t }), a.catch(() => Et.delete(s)), Et.set(s, a)), a;
 }
-const Ma = (l, e, t, s) => l.callWS({ type: "daybreak/preview", entity_id: e, settings: t, progress: s }), Xs = "0.8.0";
+const Ma = (l, e, t, s) => l.callWS({ type: "daybreak/preview", entity_id: e, settings: t, progress: s }), Xs = "0.8.1";
 let Ys = !1;
 function Wa(l) {
   if (!l || l === Xs) return;
