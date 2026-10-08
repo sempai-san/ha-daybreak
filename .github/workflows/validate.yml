@@ -20,14 +20,9 @@ jobs:
 
   hacs:
     name: HACS
-    # HACS validates the repository's default branch via the GitHub API,
-    # so results on other branches are meaningless.
-    if: github.ref == 'refs/heads/main'
+    # HACS validates the repository's default branch via the GitHub API.
     runs-on: ubuntu-latest
     steps:
       - uses: hacs/action@main
         with:
           category: integration
-          # Brand images ship inside the integration (custom_components/daybreak/brand);
-          # the check still looks for the old home-assistant/brands repository.
-          ignore: brands
