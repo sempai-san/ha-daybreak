@@ -6,7 +6,9 @@
 - Everything it does goes through Home Assistant services: lights, speakers, climate, `notify` for phone messages, the calendar and (optionally) the Waze integration. Which outside services receive data is decided by those integrations, not by DayBreak.
 - Settings and the history are stored in Home Assistant's own storage (`.storage/daybreak*`). Nothing is uploaded.
 - The panel and cards load only files from your Home Assistant. No external scripts, fonts or images. (Cover art shown while searching Music Assistant comes from the addresses Music Assistant returns.)
-- Only administrators can create, change or delete alarms and settings, or read the history details. Other users can see the alarms and snooze or stop them.
+- Administrators see and change all alarms (each shows which user it belongs to), the settings, profiles and history details.
+- Other users only see and change **their own** alarms. They can only choose entities Home Assistant lets them control, only their own person and phone, and cannot set free actions (those can call any service). The administrator's profiles and sensors are available to them only if the administrator turns on *Let users use my profiles and sensors* in the settings (use only, never change).
+- Note: Home Assistant's own services and the per-alarm entities (switches, buttons) follow Home Assistant's normal permissions, not DayBreak's.
 
 ## Reporting a problem
 

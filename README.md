@@ -298,7 +298,7 @@ Alarms and profiles from older versions are converted automatically.
 
 ## Privacy
 
-DayBreak runs entirely inside your Home Assistant: no cloud, no telemetry, and the code opens no network connections of its own. Everything goes through Home Assistant services, so only the integrations you choose (phone notifications, Music Assistant, Waze, …) talk to the outside. Only administrators can change alarms and settings or read the history details. See [SECURITY.md](SECURITY.md).
+DayBreak runs entirely inside your Home Assistant: no cloud, no telemetry, and the code opens no network connections of its own. Everything goes through Home Assistant services, so only the integrations you choose (phone notifications, Music Assistant, Waze, …) talk to the outside. Administrators see and change all alarms (each shows its user); other users only their own, limited to what Home Assistant lets them control. See [SECURITY.md](SECURITY.md).
 
 ## Reporting a problem
 
