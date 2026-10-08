@@ -1,0 +1,102 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping! Reports without the details below are hard to act on and may be closed.
+        **Privacy:** please do not post tokens, addresses, names or the unredacted log. The diagnostics download below is anonymised.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you start
+      options:
+        - label: I use the latest DayBreak version (HACS → DayBreak).
+          required: true
+        - label: I searched the open and closed issues, this is not a duplicate.
+          required: true
+        - label: I read the Troubleshooting section of the README.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: DayBreak version
+      placeholder: e.g. 0.7.2
+    validations:
+      required: true
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant version and installation type
+      placeholder: e.g. 2026.10.1, Home Assistant OS
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part is affected?
+      options:
+        - Light
+        - Audio / snooze / speaker button
+        - Phone notification
+        - Climate
+        - Calendar rules / Waze
+        - Weather / travel shift
+        - Schedule (wrong time, skipped day, holidays)
+        - History / test run
+        - Panel / editor / dashboard cards
+        - Installation / update
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you see?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Does it happen every time? Does it happen in a test run too (alarm editor → Test)?
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: devices
+    attributes:
+      label: Devices involved
+      description: "Brand and integration of the lamp / speaker / climate device (for example: IKEA lamp via ZHA, HomePod via Apple TV, Music Assistant)."
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        Settings → Devices & services → DayBreak → ⋮ → **Download diagnostics**, then drag the file into this box.
+        It contains settings, structure and the course of the last alarms, with entity ids hashed and names removed.
+    validations:
+      required: true
+  - type: textarea
+    id: history
+    attributes:
+      label: History screenshot (optional but very helpful)
+      description: DayBreak panel → History → open the affected alarm and add a screenshot of the course. Hide anything private.
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (optional)
+      description: Only the lines containing "daybreak" (Settings → System → Logs → search "daybreak"). Remove private data.
+      render: text

@@ -366,6 +366,9 @@ class DaybreakManager:
         self.light_profiles: dict[str, dict[str, Any]] = {}
         self.last_call_profiles: dict[str, dict[str, Any]] = {}
         self.climate_profiles: dict[str, dict[str, Any]] = {}
+        # Names of the Home Assistant users that own alarms (filled asynchronously).
+        self.user_names: dict[str, str] = {}
+        self._owner_id: str | None = None
         # Learned heat-up/cool-down speed per alarm: [{per_degree, outdoor}].
         self._climate_learn: dict[str, list[dict[str, Any]]] = {}
         # The last runs (newest first) with their steps, for the history view.
@@ -413,6 +416,8 @@ class DaybreakManager:
                 _LOGGER.exception("Dropping invalid stored alarm %s", raw.get("id"))
                 continue
             self.alarms[alarm["id"]] = alarm
+        await self.async_refresh_users()
+        self._adopt_orphans()
         self._handled = dict(data.get("handled", {}))
         self._climate_learn = dict(data.get("climate_learn", {}))
         self._history = [h for h in data.get("history", []) if isinstance(h, dict)][:HISTORY_MAX]
@@ -503,6 +508,33 @@ class DaybreakManager:
             return self.alarms[alarm_id]
         except KeyError as err:
             raise DaybreakError("unknown_alarm", f"Unknown alarm {alarm_id}") from err
+
+    async def async_refresh_users(self) -> None:
+        """Remember the names of the users (for the "from" label in the panel)."""
+        users = await self.hass.auth.async_get_users()
+        self.user_names = {u.id: u.name or "?" for u in users if not u.system_generated}
+        self._owner_id = next((u.id for u in users if u.is_owner and u.is_active), None)
+
+    def _adopt_orphans(self) -> None:
+        """Alarms from before users existed belong to the owner of Home Assistant."""
+        owner = self._owner_id
+        if not owner:
+            return
+        orphans = [a for a in self.alarms.values() if not a.get("user_id")]
+        for alarm in orphans:
+            alarm["user_id"] = owner
+        if orphans:
+            self._save()
+
+    def user_name(self, user_id: str | None) -> str | None:
+        if not user_id:
+            return None
+        if name := self.user_names.get(user_id):
+            return name
+        for state in self.hass.states.async_all("person"):
+            if state.attributes.get("user_id") == user_id:
+                return state.name
+        return None
 
     async def async_create(self, data: dict[str, Any]) -> dict[str, Any]:
         data = {key: value for key, value in data.items() if key != "id"}
@@ -610,14 +642,17 @@ class DaybreakManager:
 
     # --------------------------------------------------------------- profiles
 
-    def all_light_profiles(self) -> list[dict[str, Any]]:
-        return [*deepcopy(BUILTIN_LIGHT_PROFILES), *self.light_profiles.values()]
+    def all_light_profiles(self, shared: bool = True) -> list[dict[str, Any]]:
+        custom = list(self.light_profiles.values()) if shared else []
+        return [*deepcopy(BUILTIN_LIGHT_PROFILES), *custom]
 
-    def all_last_call_profiles(self) -> list[dict[str, Any]]:
-        return [*deepcopy(BUILTIN_LAST_CALL_PROFILES), *self.last_call_profiles.values()]
+    def all_last_call_profiles(self, shared: bool = True) -> list[dict[str, Any]]:
+        custom = list(self.last_call_profiles.values()) if shared else []
+        return [*deepcopy(BUILTIN_LAST_CALL_PROFILES), *custom]
 
-    def all_climate_profiles(self) -> list[dict[str, Any]]:
-        return [*deepcopy(BUILTIN_CLIMATE_PROFILES), *self.climate_profiles.values()]
+    def all_climate_profiles(self, shared: bool = True) -> list[dict[str, Any]]:
+        custom = list(self.climate_profiles.values()) if shared else []
+        return [*deepcopy(BUILTIN_CLIMATE_PROFILES), *custom]
 
     def climate_profile(self, profile_id: str | None) -> dict[str, Any] | None:
         if not profile_id:
@@ -981,12 +1016,14 @@ class DaybreakManager:
     def as_dict(self, alarm_id: str) -> dict[str, Any]:
         return {**self.alarms[alarm_id], "runtime": self.runtime_info(alarm_id)}
 
-    def next_overall(self) -> tuple[str, datetime] | None:
-        """The enabled alarm that rings next."""
+    def next_overall(self, only: set[str] | None = None) -> tuple[str, datetime] | None:
+        """The enabled alarm that rings next (of the given alarms, if any)."""
         upcoming = [
             (runtime.next_alarm, alarm_id)
             for alarm_id, runtime in self._runtime.items()
-            if runtime.next_alarm and self.alarms[alarm_id]["kind"] == "wake"
+            if runtime.next_alarm
+            and self.alarms[alarm_id]["kind"] == "wake"
+            and (only is None or alarm_id in only)
         ]
         if not upcoming:
             return None

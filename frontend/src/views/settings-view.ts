@@ -280,6 +280,10 @@ export class DbSettingsView extends LitElement {
             ? t(hass, "holiday_used", { entity: friendlyName(hass, this.snapshot.holiday_entity) })
             : t(hass, "holidays_none")}
         </div>
+        <label class="row"><input type="checkbox" .checked=${!!s.share_with_users}
+          @change=${(e: Event) => this._set({ share_with_users: (e.target as HTMLInputElement).checked })} />
+          ${t(hass, "share_users")}</label>
+        <div class="muted">${t(hass, "share_users_d")}</div>
         ${this._sel(["notify"], s.notify, (v) => this._set({ notify: v || null }), t(hass, "notify_default"))}
         <div class="muted">${t(hass, "notify_hint")}</div>
       </section>

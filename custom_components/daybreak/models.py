@@ -497,6 +497,8 @@ ALARM_SCHEMA = vol.Schema(
         vol.Optional("kind", default="wake"): vol.In(KINDS),
         vol.Optional("enabled", default=True): cv.boolean,
         vol.Optional("owners", default=list): vol.All(cv.ensure_list, [cv.entity_id]),
+        # Home Assistant user who created the alarm (None = nobody yet, admins only).
+        vol.Optional("user_id", default=None): vol.Any(None, cv.string),
         vol.Optional("wake", default=dict): WAKE_SCHEMA,
         vol.Optional("light_lead", default=30): MINUTES,
         vol.Optional("repeat", default=dict): REPEAT_SCHEMA,
@@ -623,6 +625,8 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("temperature_entity", default=None): vol.Any(None, cv.entity_id),
         vol.Optional("holiday_entity", default=None): vol.Any(None, cv.entity_id),
         vol.Optional("default_mode", default="normal"): vol.In(["simple", "normal", "expert"]),
+        # Users without admin rights may use (not change) the shared profiles and sensors.
+        vol.Optional("share_with_users", default=False): cv.boolean,
         vol.Optional("notify", default=None): vol.Any(None, cv.string),
         vol.Optional("mode_hidden", default=lambda: deepcopy(DEFAULT_MODE_HIDDEN)): vol.Schema(
             {

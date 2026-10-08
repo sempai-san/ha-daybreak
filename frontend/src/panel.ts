@@ -56,6 +56,7 @@ export class DaybreakPanel extends LitElement {
   @property({ type: Boolean, reflect: true }) narrow = false;
   @state() private _snapshot?: Snapshot;
   @state() private _tab: Tab = "alarms";
+  @state() private _userFilter = "";
   @state() private _editing?: { alarm: AlarmConfig; id?: string };
   @state() private _mode?: EditorMode;
   @state() private _saving = false;
@@ -362,7 +363,7 @@ export class DaybreakPanel extends LitElement {
   }
 
   private _edit(alarm: Alarm) {
-    const { runtime: _runtime, id, ...config } = alarm;
+    const { runtime: _runtime, id, user_name: _userName, ...config } = alarm;
     this._editing = { alarm: withDefaults(defaultAlarm(config.kind), config), id };
   }
 
@@ -418,7 +419,9 @@ export class DaybreakPanel extends LitElement {
 
   render() {
     const hass = this.hass;
-    const tabs: Tab[] = ["alarms", "history", "profiles", "last_call", "climate", "settings"];
+    const admin = this._snapshot?.is_admin !== false;
+    // Profiles, history and settings belong to the administrator.
+    const tabs: Tab[] = admin ? ["alarms", "history", "profiles", "last_call", "climate", "settings"] : ["alarms"];
     return html`
       <div class="toolbar">
         <ha-menu-button .hass=${hass} .narrow=${this.narrow}></ha-menu-button>
@@ -464,6 +467,7 @@ export class DaybreakPanel extends LitElement {
         .runtime=${snapshot.alarms.find((a) => a.id === this._editing?.id)?.runtime}
         .holidayEntity=${snapshot.holiday_entity}
         .alarms=${snapshot.alarms.map((a) => ({ id: a.id, name: a.name }))}
+        .isAdmin=${snapshot.is_admin !== false}
         .mode=${this._editorMode}
         .isNew=${!this._editing.id}
         .saving=${this._saving}
@@ -495,15 +499,33 @@ export class DaybreakPanel extends LitElement {
     }
   }
 
+  /** Users that own alarms (only an administrator sees more than one). */
+  private _users(snapshot: Snapshot) {
+    const found = new Map<string, string>();
+    for (const a of snapshot.alarms) if (a.user_id) found.set(a.user_id, a.user_name ?? "?");
+    return [...found].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   private _alarms(snapshot: Snapshot) {
     const hass = this.hass;
     const active = snapshot.alarms.filter((a) => ACTIVE_STATES.includes(a.runtime.state));
-    const sorted = [...snapshot.alarms].sort((a, b) =>
+    const users = this._users(snapshot);
+    const shown = this._userFilter ? snapshot.alarms.filter((a) => a.user_id === this._userFilter) : snapshot.alarms;
+    const sorted = [...shown].sort((a, b) =>
       (a.runtime.next_alarm ?? "9999").localeCompare(b.runtime.next_alarm ?? "9999"),
     );
     return html`
       ${active.map((a) => this._activeCard(a))}
       ${this._top(snapshot)}
+      ${users.length > 1
+        ? html`<div class="row users" role="group" aria-label=${t(hass, "users_filter")}>
+            <button class="chip" aria-pressed=${!this._userFilter} @click=${() => (this._userFilter = "")}>${t(hass, "users_all")}</button>
+            ${users.map(
+              (u) => html`<button class="chip" aria-pressed=${this._userFilter === u.id}
+                @click=${() => (this._userFilter = u.id)}>${u.name}</button>`,
+            )}
+          </div>`
+        : nothing}
       <section class="card list" aria-label=${t(hass, "tab_alarms")}>
         ${sorted.length ? sorted.map((a) => this._row(a)) : html`<div class="empty">${t(hass, "no_alarms")}</div>`}
       </section>
@@ -637,6 +659,7 @@ export class DaybreakPanel extends LitElement {
       <div class="grow">
         <div class="nm">${alarm.name}
           ${alarm.kind !== "wake" ? html`<span class="badge">${t(hass, `kind_${alarm.kind}` as StringKey)}</span>` : nothing}
+          ${this._snapshot?.is_admin !== false && alarm.user_name ? html`<span class="badge" title=${t(hass, "users_of")}>👤 ${alarm.user_name}</span>` : nothing}
           ${rt.shift ? html`<span class="badge">${t(hass, "shifted_by", { min: rt.shift })}</span>` : nothing}
         </div>
         ${days}

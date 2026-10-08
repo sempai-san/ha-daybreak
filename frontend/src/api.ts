@@ -162,6 +162,9 @@ export interface AlarmConfig {
   kind: Kind;
   enabled: boolean;
   owners: string[];
+  /** Home Assistant user the alarm belongs to (set by DayBreak). */
+  user_id?: string | null;
+  user_name?: string | null;
   wake: {
     type: "fixed" | "sun";
     time: string;
@@ -351,6 +354,8 @@ export interface Settings {
   /** Editor options hidden per mode (expert always shows all). */
   mode_hidden?: Partial<Record<"simple" | "normal", ModeFeature[]>>;
   notify: string | null;
+  /** Users without admin rights may use (not change) the shared profiles and sensors. */
+  share_with_users?: boolean;
 }
 
 export interface LightProfile {
@@ -445,6 +450,8 @@ export interface Snapshot {
   last_call_profiles: LastCallProfile[];
   climate_profiles?: ClimateProfile[];
   version?: string;
+  /** The logged-in user is an administrator (sees all alarms and every tab). */
+  is_admin?: boolean;
   /** The last runs, newest first. */
   history?: HistoryEntry[];
 }
@@ -748,3 +755,11 @@ export function fetchPhones(hass: HomeAssistant): Promise<Phones> {
   phonesCache.catch(() => (phonesCache = undefined));
   return phonesCache;
 }
+
+export interface HaUser {
+  id: string;
+  name: string;
+}
+
+/** Users an administrator can give an alarm to. */
+export const getUsers = (hass: HomeAssistant) => hass.callWS<HaUser[]>({ type: "daybreak/users" });

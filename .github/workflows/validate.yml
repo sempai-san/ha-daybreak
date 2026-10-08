@@ -28,5 +28,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Brand images are added to home-assistant/brands before the HACS default submission.
+          # Brand images ship inside the integration (custom_components/daybreak/brand);
+          # the check still looks for the old home-assistant/brands repository.
           ignore: brands

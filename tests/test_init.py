@@ -409,3 +409,158 @@ async def test_reload_restores_alarms(hass: HomeAssistant, manager) -> None:
     assert sorted(a["name"] for a in reloaded.alarms.values()) == ["A", "B"]
     assert reloaded.state(first["id"]) == "scheduled"
     assert hass.states.get("binary_sensor.daybreak_alarm_active").state == STATE_OFF
+
+
+async def test_read_only_user_cannot_configure(
+    hass: HomeAssistant, manager, hass_ws_client, hass_read_only_access_token
+) -> None:
+    assert await async_setup_component(hass, "websocket_api", {})
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+    hass.states.async_set("light.bed", "off")
+    for payload in (
+        {"type": "daybreak/settings", "changes": {"default_snooze_count": 9}},
+        {"type": "daybreak/history/entry", "entry_id": "x"},
+        {"type": "daybreak/users"},
+        {
+            "type": "daybreak/profile/save",
+            "kind": "light",
+            "profile": {"name": "P"},
+        },
+        # Cannot control the light, so cannot put it into an alarm.
+        {
+            "type": "daybreak/alarm/create",
+            "alarm": {"name": "X", "light": {"targets": {"entity_id": ["light.bed"]}}},
+        },
+    ):
+        await client.send_json_auto_id(payload)
+        msg = await client.receive_json()
+        assert not msg["success"] and msg["error"]["code"] == "unauthorized", payload
+    await client.send_json_auto_id({"type": "daybreak/alarms"})
+    msg = await client.receive_json()
+    assert msg["success"] and msg["result"]["history"] == [] and not msg["result"]["is_admin"]
+
+
+async def _user_client(hass: HomeAssistant, hass_ws_client, name: str):
+    from homeassistant.auth.const import GROUP_ID_USER
+
+    user = await hass.auth.async_create_user(name, group_ids=[GROUP_ID_USER])
+    refresh = await hass.auth.async_create_refresh_token(user, "https://example.com")
+    token = hass.auth.async_create_access_token(refresh)
+    return user, await hass_ws_client(hass, token)
+
+
+async def _call(client, payload):
+    await client.send_json_auto_id(payload)
+    return await client.receive_json()
+
+
+async def test_users_see_and_change_only_their_own_alarms(
+    hass: HomeAssistant, manager, hass_ws_client
+) -> None:
+    assert await async_setup_component(hass, "websocket_api", {})
+    hass.states.async_set("light.bed", "off", {"supported_color_modes": ["brightness"]})
+    anna, anna_ws = await _user_client(hass, hass_ws_client, "Anna")
+    ben, ben_ws = await _user_client(hass, hass_ws_client, "Ben")
+    hass.states.async_set("person.anna", "home", {"user_id": anna.id})
+    hass.states.async_set("person.ben", "home", {"user_id": ben.id})
+    admin_ws = await hass_ws_client(hass)
+
+    alarm = {
+        "name": "Anna's",
+        "wake": {"time": "07:00"},
+        "repeat": {"type": "once"},
+        "light": {"targets": {"entity_id": ["light.bed"]}},
+        "owners": ["person.anna"],
+        # Free actions can call any service: dropped for users.
+        "actions": {"wake": [{"action": "homeassistant.restart"}]},
+        "user_id": ben.id,  # cannot be given to somebody else
+    }
+    msg = await _call(anna_ws, {"type": "daybreak/alarm/create", "alarm": alarm})
+    assert msg["success"], msg
+    anna_id = msg["result"]["id"]
+    assert msg["result"]["user_id"] == anna.id
+    assert msg["result"]["actions"]["wake"] == []
+
+    # Another person's phone is not hers to choose.
+    msg = await _call(
+        anna_ws, {"type": "daybreak/alarm/create", "alarm": {**alarm, "owners": ["person.ben"]}}
+    )
+    assert msg["error"]["code"] == "unauthorized"
+
+    admin_alarm = await manager.async_create(
+        {"name": "Admin", "wake": {"time": "06:00"}, "repeat": {"type": "once"}}
+    )
+    # Users only see their own; the administrator sees all and who they belong to.
+    msg = await _call(anna_ws, {"type": "daybreak/alarms"})
+    assert [a["id"] for a in msg["result"]["alarms"]] == [anna_id]
+    msg = await _call(ben_ws, {"type": "daybreak/alarms"})
+    assert msg["result"]["alarms"] == []
+    msg = await _call(admin_ws, {"type": "daybreak/alarms"})
+    names = {a["id"]: a["user_name"] for a in msg["result"]["alarms"]}
+    assert names[anna_id] == "Anna" and set(names) == {anna_id, admin_alarm["id"]}
+
+    # Neither change nor remove foreign alarms.
+    for payload in (
+        {"type": "daybreak/alarm/update", "alarm_id": admin_alarm["id"], "changes": {"name": "x"}},
+        {"type": "daybreak/alarm/delete", "alarm_id": admin_alarm["id"]},
+        {"type": "daybreak/alarm/action", "alarm_id": admin_alarm["id"], "action": "disable"},
+    ):
+        assert (await _call(anna_ws, payload))["error"]["code"] == "unauthorized"
+    assert (await _call(ben_ws, {"type": "daybreak/alarm/delete", "alarm_id": anna_id}))["error"][
+        "code"
+    ] == "unauthorized"
+    msg = await _call(
+        anna_ws,
+        {"type": "daybreak/alarm/update", "alarm_id": anna_id, "changes": {"name": "Mine"}},
+    )
+    assert msg["success"] and msg["result"]["name"] == "Mine"
+
+    # The administrator's profiles are only usable once shared.
+    profile = await manager.async_save_profile("light", {"name": "Admin profile"})
+    change = {
+        "type": "daybreak/alarm/update",
+        "alarm_id": anna_id,
+        "changes": {"light": {"profile": profile["id"]}},
+    }
+    assert (await _call(anna_ws, change))["error"]["code"] == "unauthorized"
+    await manager.async_update_settings({"share_with_users": True})
+    assert (await _call(anna_ws, change))["success"]
+
+    # The administrator can hand an alarm to somebody else and delete any alarm.
+    msg = await _call(
+        admin_ws,
+        {"type": "daybreak/alarm/update", "alarm_id": anna_id, "changes": {"user_id": ben.id}},
+    )
+    assert msg["result"]["user_id"] == ben.id
+    assert (await _call(admin_ws, {"type": "daybreak/alarm/delete", "alarm_id": anna_id}))[
+        "success"
+    ]
+
+
+async def test_old_alarms_go_to_the_owner(hass: HomeAssistant, manager, hass_owner_user) -> None:
+    alarm = await manager.async_create({"name": "Old", "wake": {"time": "07:00"}})
+    assert alarm["user_id"] is None
+    await manager.async_refresh_users()
+    manager._adopt_orphans()
+    assert manager.alarms[alarm["id"]]["user_id"] == hass_owner_user.id
+
+
+async def test_diagnostics_have_no_personal_data(hass: HomeAssistant, manager) -> None:
+    from custom_components.daybreak.diagnostics import async_get_config_entry_diagnostics
+
+    hass.states.async_set("light.secret_bedroom", "off")
+    await manager.async_create(
+        {
+            "name": "Anna's alarm",
+            "wake": {"time": "07:00"},
+            "repeat": {"type": "once"},
+            "light": {"targets": {"entity_id": ["light.secret_bedroom"]}},
+        }
+    )
+
+    class _Entry:
+        runtime_data = manager
+
+    text = str(await async_get_config_entry_diagnostics(hass, _Entry()))
+    assert "secret_bedroom" not in text and "Anna" not in text
+    assert "light." in text and "daybreak_version" in text

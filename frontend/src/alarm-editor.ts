@@ -25,6 +25,8 @@ import {
   type Settings,
   type SunTimes,
   type WeatherKey,
+  getUsers,
+  type HaUser,
 } from "./api";
 import { t, weekdayNames, type StringKey } from "./i18n";
 import { capsOf, defaultCalendar, defaultClimate, defaultSettings, rampGradient } from "./model";
@@ -90,6 +92,14 @@ export class DaybreakAlarmEditor extends LitElement {
   @property({ attribute: false }) alarms: { id: string; name: string }[] = [];
   @property() mode: EditorMode = "normal";
   @property({ type: Boolean }) isNew = false;
+  /** Administrators may give the alarm to another user and set free actions. */
+  @property({ type: Boolean }) isAdmin = true;
+  @state() private _users: HaUser[] = [];
+
+  connectedCallback() {
+    super.connectedCallback();
+    if (this.isAdmin && this.hass) getUsers(this.hass).then((u) => (this._users = u)).catch(() => undefined);
+  }
   @property({ type: Boolean }) saving = false;
   @property({ type: Boolean }) narrow = false;
   @state() private _draft?: AlarmConfig;
@@ -666,6 +676,13 @@ export class DaybreakAlarmEditor extends LitElement {
         ${this._ownerPick && !free.length ? html`<span class="muted">${t(hass, "owner_none")}</span>` : nothing}
       </div>
       <div class="muted">${t(hass, "owners_hint")}</div>
+      ${this.isAdmin && this._users.length > 1
+        ? html`<label class="lbl" for="user">${t(hass, "users_of")}</label>
+            <select id="user" class="inp" @change=${(ev: Event) => this._patch({ user_id: (ev.target as HTMLSelectElement).value || null })}>
+              ${d.user_id ? nothing : html`<option value="" selected>${t(hass, "users_me")}</option>`}
+              ${this._users.map((u) => html`<option value=${u.id} ?selected=${u.id === d.user_id}>${u.name}</option>`)}
+            </select>`
+        : nothing}
     </section>`;
   }
 
@@ -1814,7 +1831,7 @@ export class DaybreakAlarmEditor extends LitElement {
         ${kind === "wake" && this._has("audio", this.d.audio.enabled) ? this._audioSection() : nothing}
         ${kind === "wake" && this._has("climate", !!this.d.climate?.enabled) ? this._climateSection() : nothing}
         ${kind === "wake" && this._has("push", this.d.push.enabled) ? this._pushSection() : nothing}
-        ${this._has("actions", PHASES.some((p) => this.d.actions[p].length)) ? this._actionsSection() : nothing}
+        ${this.isAdmin && this._has("actions", PHASES.some((p) => this.d.actions[p].length)) ? this._actionsSection() : nothing}
         ${this._has("none") && kind === "wake" ? this._noneSection() : nothing}
         ${this._has("fallback") ? this._fallbackSection() : nothing}
       </div>

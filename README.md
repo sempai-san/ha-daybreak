@@ -296,6 +296,14 @@ Alarms and profiles from older versions are converted automatically.
       custom_components.daybreak: debug
   ```
 
+## Privacy
+
+DayBreak runs entirely inside your Home Assistant: no cloud, no telemetry, and the code opens no network connections of its own. Everything goes through Home Assistant services, so only the integrations you choose (phone notifications, Music Assistant, Waze, …) talk to the outside. Administrators see and change all alarms (each shows its user); other users only their own, limited to what Home Assistant lets them control. See [SECURITY.md](SECURITY.md).
+
+## Reporting a problem
+
+Please [open an issue](https://github.com/sempai-san/hacs_daybreak/issues/new/choose) and fill in the form. The most useful attachment is the anonymised diagnostics file (**Settings → Devices & services → DayBreak → ⋮ → Download diagnostics**): entity ids are hashed and names, messages and locations are removed.
+
 ## Development
 
 ```bash
