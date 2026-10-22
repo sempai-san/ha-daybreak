@@ -37,7 +37,12 @@ async def test_push_only_calls_notify_domain(hass: HomeAssistant, manager) -> No
 async def test_announcement_template_only_for_admins(hass: HomeAssistant) -> None:
     calls = async_mock_service(hass, "tts", "speak")
     audio = validate_alarm(
-        {"audio": {"players": ["media_player.a"], "tts": {"enabled": True, "engine": "tts.x", "message": "{{ 1 + 1 }}"}}}
+        {
+            "audio": {
+                "players": ["media_player.a"],
+                "tts": {"enabled": True, "engine": "tts.x", "message": "{{ 1 + 1 }}"},
+            }
+        }
     )["audio"]
     for templates, expected in ((False, "{{ 1 + 1 }}"), (True, "2")):
         player = AlarmAudio(hass, audio, None, {}, lambda: None, templates=templates)
@@ -47,7 +52,12 @@ async def test_announcement_template_only_for_admins(hass: HomeAssistant) -> Non
 
 def test_diagnostics_drop_account_identifiers() -> None:
     cleaned = _clean(
-        {"user_id": "abc", "notify": "mobile_app_x", "fallback": {"notify": "mobile_app_x"}, "push": {"targets": ["mobile_app_x"]}}
+        {
+            "user_id": "abc",
+            "notify": "mobile_app_x",
+            "fallback": {"notify": "mobile_app_x"},
+            "push": {"targets": ["mobile_app_x"]},
+        }
     )
     assert "mobile_app_x" not in str(cleaned)
     assert "abc" not in str(cleaned)
