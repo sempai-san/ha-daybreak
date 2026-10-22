@@ -38,7 +38,6 @@ _DROP = {
     "persons",
     "user_id",
     "notify",
-    "targets",
 }
 _KEEP_STEP = {"step", "level", "ok", "t", "phase", "reason"}
 
@@ -48,9 +47,17 @@ def _hash(value: str) -> str:
     return f"{domain}.{hashlib.sha256(value.encode()).hexdigest()[:6]}"
 
 
+def _is_push_targets(key: str, value: Any) -> bool:
+    """push.targets is a list of phone service names; light targets are a dict."""
+    return key == "targets" and isinstance(value, list)
+
+
 def _clean(value: Any) -> Any:
     if isinstance(value, dict):
-        return {k: "**REDACTED**" if k in _DROP else _clean(v) for k, v in value.items()}
+        return {
+            k: "**REDACTED**" if k in _DROP or _is_push_targets(k, v) else _clean(v)
+            for k, v in value.items()
+        }
     if isinstance(value, list):
         return [_clean(v) for v in value]
     if isinstance(value, str) and _ENTITY.match(value) and not value.replace(".", "").isdigit():
