@@ -369,6 +369,7 @@ class DaybreakManager:
         # Names of the Home Assistant users that own alarms (filled asynchronously).
         self.user_names: dict[str, str] = {}
         self._owner_id: str | None = None
+        self._admin_ids: set[str] = set()
         # Learned heat-up/cool-down speed per alarm: [{per_degree, outdoor}].
         self._climate_learn: dict[str, list[dict[str, Any]]] = {}
         # The last runs (newest first) with their steps, for the history view.
@@ -513,6 +514,7 @@ class DaybreakManager:
         """Remember the names of the users (for the "from" label in the panel)."""
         users = await self.hass.auth.async_get_users()
         self.user_names = {u.id: u.name or "?" for u in users if not u.system_generated}
+        self._admin_ids = {u.id for u in users if u.is_admin and u.is_active}
         self._owner_id = next((u.id for u in users if u.is_owner and u.is_active), None)
 
     def _adopt_orphans(self) -> None:
@@ -2029,6 +2031,7 @@ class DaybreakManager:
                 run.context,
                 self._variables(alarm_id, run),
                 partial(self._on_speaker_button, alarm_id),
+                templates=not alarm.get("user_id") or alarm["user_id"] in self._admin_ids,
                 speed=run.speed or 1.0,
                 on_problem=partial(self._problem, alarm_id, "audio"),
                 on_event=partial(self._audio_event, run),
@@ -3152,11 +3155,13 @@ class DaybreakManager:
                     blocking=True,
                 )
                 return
-            domain, _, service = target.partition(".")
-            if not service:
-                domain, service = "notify", target
+            # Only the notify domain: a target must never reach other services.
+            service = target.removeprefix("notify.")
+            if "." in service:
+                _LOGGER.warning("DayBreak: %s is not a notify service", target)
+                return
             await self.hass.services.async_call(
-                domain, service, {"message": message, "title": title}, blocking=True
+                "notify", service, {"message": message, "title": title}, blocking=True
             )
         except Exception:
             _LOGGER.warning("DayBreak: notification via %s failed", target, exc_info=True)

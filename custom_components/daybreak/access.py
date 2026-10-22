@@ -109,6 +109,13 @@ def _allowed(user: User, entity_id: str) -> bool:
     return bool(user.permissions.check_entity(entity_id, policy))
 
 
+def _notify_allowed(user: User, target: str, phones: set[str]) -> bool:
+    """Non-admins may only name a notify entity they control or their own phone."""
+    if target in phones or target.removeprefix("notify.") in phones:
+        return True
+    return target.startswith("notify.") and _allowed(user, target)
+
+
 def clean_for_user(
     hass: HomeAssistant,
     manager: DaybreakManager,
@@ -143,6 +150,10 @@ def clean_for_user(
                 raise Unauthorized
             if key == "targets" and isinstance(value, list) and not set(value) <= phones:
                 raise Unauthorized
+            if key == "fallback" and isinstance(value, dict):
+                target = value.get("notify")
+                if target and not _notify_allowed(user, target, phones):
+                    raise Unauthorized
         if any(node.get(k) for k in _TARGET_KEYS):
             selected = async_extract_referenced_entity_ids(
                 hass, TargetSelection(dict(node)), expand_group=False

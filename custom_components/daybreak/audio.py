@@ -45,6 +45,7 @@ class AlarmAudio:
         on_button: Callable[[], None],
         *,
         speed: float = 1.0,
+        templates: bool = False,
         on_problem: Callable[[str], None] | None = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
         on_command: Callable[[list[str], str, dict[str, Any]], list[Any]] | None = None,
@@ -55,6 +56,8 @@ class AlarmAudio:
         self.players: list[str] = list(audio["players"])
         self.context = context
         self.variables = variables
+        # Only administrators may render templates; others get their text as is.
+        self._templates = templates
         self._on_button = on_button
         self._on_problem = on_problem
         self._on_event = on_event
@@ -259,10 +262,12 @@ class AlarmAudio:
         if not engine:
             _LOGGER.warning("DayBreak: no text-to-speech engine for the announcement")
             return
+        message = tts["message"]
         try:
-            message = Template(tts["message"], self.hass).async_render(
-                self.variables, parse_result=False
-            )
+            if self._templates:
+                message = Template(message, self.hass).async_render(
+                    self.variables, parse_result=False
+                )
         except Exception:
             _LOGGER.warning("DayBreak: announcement template failed", exc_info=True)
             message = tts["message"]

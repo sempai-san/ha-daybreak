@@ -36,6 +36,9 @@ _DROP = {
     "entities",
     "services",
     "persons",
+    "user_id",
+    "notify",
+    "targets",
 }
 _KEEP_STEP = {"step", "level", "ok", "t", "phase", "reason"}
 

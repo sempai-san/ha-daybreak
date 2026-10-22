@@ -686,21 +686,11 @@ export let staleFrontend = false;
 
 /**
  * After an update Home Assistant serves the new bundle, but an open page keeps
- * the old one. Reload once per new version; if that did not help (app cache),
- * remember it so the panel can show how to clear the cache.
+ * the old one. Never reload by itself (wall tablets, other dashboards): flag it
+ * so the panel shows a banner with a reload button.
  */
 function checkVersion(version: string | undefined): void {
   if (!version || version === FRONTEND_VERSION) return;
-  const key = `daybreak-reloaded-${version}`;
-  try {
-    if (!sessionStorage.getItem(key)) {
-      sessionStorage.setItem(key, "1");
-      window.location.reload();
-      return;
-    }
-  } catch {
-    /* storage blocked: do not risk a reload loop */
-  }
   staleFrontend = true;
 }
 
